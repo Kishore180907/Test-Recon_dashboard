@@ -1,0 +1,27 @@
+[build]
+  publish = "public"
+  command = "echo 'static site — functions build themselves'"
+
+[functions]
+  node_bundler = "esbuild"
+  directory = "netlify/functions"
+
+# Give the on-demand endpoints headroom inside the sync-function ceiling.
+[functions."sync-now"]
+  timeout = 26
+
+[functions."data"]
+  timeout = 15
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Cache-Control = "no-store"
+
+[dev]
+  framework = "#static"
+  publish = "public"
+  targetPort = 8888

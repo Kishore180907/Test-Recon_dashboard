@@ -1,0 +1,19 @@
+{
+  "name": "clb23-live-dashboard",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Near-real-time order-mix dashboard for CLB XXIII: Online / Assisted / Draft revenue with attribution drill-down. Netlify Functions + Blobs.",
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "check": "node scripts/selftest.js",
+    "smoke": "node scripts/smoke.js",
+    "dev:local": "node scripts/dev-server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

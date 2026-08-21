@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<title>CLB XXIII — Order Mix</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane:      #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:     #2c2c2a;
+    --baseline: #383835;
+    --border:   rgba(255,255,255,0.10);
+    --wash:     rgba(255,255,255,0.045);
+
+    --series-online:   #3987e5;
+    --series-assisted: #d95926;
+    --series-draft:    #199e70;
+
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --plane:      #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:     #e1e0d9;
+    --baseline: #c3c2b7;
+    --border:   rgba(11,11,11,0.10);
+    --wash:     rgba(11,11,11,0.04);
+
+    --series-online:   #2a78d6;
+    --series-assisted: #eb6834;
+    --series-draft:    #1baf7a;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--plane);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 20px 24px 64px; }
+
+  /* ---------- header ---------- */
+  header.top {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 20px; flex-wrap: wrap; margin-bottom: 18px;
+  }
+  .brand h1 { font-size: 19px; font-weight: 640; margin: 0; letter-spacing: -0.01em; }
+  .brand p  { margin: 3px 0 0; font-size: 12.5px; color: var(--text-muted); }
+
+  .livedot {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .livedot i {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 0 rgba(12,163,12,.55); animation: pulse 2.4s infinite;
+  }
+  .livedot.paused i { background: var(--text-muted); animation: none; }
+  .livedot.err i { background: var(--critical); animation: none; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(12,163,12,.5); }
+    70% { box-shadow: 0 0 0 7px rgba(12,163,12,0); }
+    100% { box-shadow: 0 0 0 0 rgba(12,163,12,0); }
+  }
+
+  /* ---------- controls ---------- */
+  .controls {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 12px; margin-bottom: 18px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+  }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    background: transparent; border: 0; color: var(--text-secondary);
+    font: inherit; font-size: 12.5px; padding: 6px 11px; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover { background: var(--wash); color: var(--text-primary); }
+  .seg button[aria-pressed="true"] { background: var(--wash); color: var(--text-primary); font-weight: 600; }
+
+  .ctl-label { font-size: 12px; color: var(--text-muted); margin-left: 6px; }
+  input[type="date"] {
+    background: transparent; color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 8px; font: inherit; font-size: 12.5px;
+  }
+  .btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); font: inherit; font-size: 12.5px;
+    padding: 6px 11px; cursor: pointer;
+  }
+  .btn:hover { background: var(--wash); color: var(--text-primary); }
+  .spacer { flex: 1 1 auto; }
+
+  .banner {
+    display: none; margin-bottom: 14px; padding: 9px 12px; border-radius: 10px;
+    font-size: 12.5px; border: 1px solid var(--critical);
+    color: var(--text-primary); background: color-mix(in srgb, var(--critical) 12%, transparent);
+  }
+  .banner.show { display: block; }
+  .banner.note { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 900px) { .tiles { grid-template-columns: 1fr; } }
+
+  .tile {
+    position: relative; text-align: left; cursor: pointer;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px 18px 15px; overflow: hidden;
+    transition: border-color .15s, transform .15s;
+  }
+  .tile:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  .tile[aria-selected="true"] {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .tile::before {
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent);
+  }
+  .tile-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); flex: none; }
+  .tile-name { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); letter-spacing: .01em; }
+  .tile-rule { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+
+  .hero { font-size: 34px; font-weight: 660; letter-spacing: -0.022em; line-height: 1.08; }
+  .hero .cents { font-size: 20px; font-weight: 560; color: var(--text-secondary); }
+  .tile-sub { margin-top: 7px; display: flex; gap: 16px; font-size: 12px; color: var(--text-muted); }
+  .tile-sub b { color: var(--text-secondary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .sharebar { margin-top: 12px; height: 5px; border-radius: 3px; background: var(--wash); overflow: hidden; }
+  .sharebar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width .35s ease; }
+  .sharepct { margin-top: 6px; font-size: 11.5px; color: var(--text-muted); }
+
+  .tile.online   { --accent: var(--series-online); }
+  .tile.assisted { --accent: var(--series-assisted); }
+  .tile.draft    { --accent: var(--series-draft); }
+
+  /* ---------- totals strip ---------- */
+  .strip {
+    display: flex; gap: 26px; flex-wrap: wrap; align-items: baseline;
+    padding: 11px 18px; margin-bottom: 20px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    font-size: 12.5px; color: var(--text-muted);
+  }
+  .strip b { color: var(--text-primary); font-weight: 620; font-variant-numeric: tabular-nums; }
+
+  /* ---------- chart ---------- */
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px 18px; margin-bottom: 20px;
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 4px; flex-wrap: wrap; }
+  .card-title { font-size: 13.5px; font-weight: 620; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 9px; height: 9px; border-radius: 2.5px; }
+
+  #chart { width: 100%; height: 190px; display: block; }
+  #chart text { font: 11px system-ui, sans-serif; fill: var(--text-muted); }
+
+  .tooltip {
+    position: fixed; pointer-events: none; z-index: 50; opacity: 0;
+    transform: translate(-50%, -112%); transition: opacity .1s;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 9px; padding: 9px 11px; min-width: 170px;
+    box-shadow: 0 8px 26px rgba(0,0,0,.30); font-size: 12px;
+  }
+  .tooltip .tt-day { font-weight: 620; margin-bottom: 6px; color: var(--text-primary); }
+  .tooltip .tt-row { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
+  .tooltip .tt-row b { margin-left: auto; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .tooltip i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+
+  /* ---------- table ---------- */
+  .table-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .table-title { font-size: 14px; font-weight: 630; display: flex; align-items: center; gap: 8px; }
+  .table-title i { width: 10px; height: 10px; border-radius: 3px; }
+  .count-pill {
+    font-size: 11.5px; color: var(--text-muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 9px;
+  }
+  input[type="search"] {
+    background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-primary); font: inherit; font-size: 12.5px; padding: 6px 10px; min-width: 190px;
+  }
+
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--surface-1); text-align: left; font-weight: 600;
+    color: var(--text-secondary); white-space: nowrap;
+    padding: 9px 12px; border-bottom: 1px solid var(--baseline); cursor: pointer; user-select: none;
+  }
+  thead th:hover { color: var(--text-primary); }
+  thead th .arr { color: var(--text-muted); font-size: 10px; margin-left: 3px; }
+  tbody td { padding: 9px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: var(--wash); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.ord a { font-weight: 620; text-decoration: none; }
+  td.ord a:hover { text-decoration: underline; }
+  .sub { display: block; color: var(--text-muted); font-size: 11px; margin-top: 2px;
+         max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip {
+    display: inline-block; font-size: 11px; padding: 1.5px 7px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap;
+  }
+  .chip.credit { border-color: var(--series-assisted); color: var(--series-assisted); }
+  .chip.cancelled { border-color: var(--critical); color: var(--critical); }
+  .empty { padding: 34px; text-align: center; color: var(--text-muted); font-size: 13px; }
+  .skeleton { color: var(--text-muted); font-size: 13px; padding: 30px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1>Order Mix</h1>
+      <p id="sub">CLB XXIII · loading…</p>
+    </div>
+    <div class="livedot" id="live"><i></i><span id="livetext">connecting…</span></div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="controls">
+    <div class="seg" id="presets">
+      <button data-preset="today">Today</button>
+      <button data-preset="7" aria-pressed="true">7 days</button>
+      <button data-preset="30">30 days</button>
+      <button data-preset="90">90 days</button>
+      <button data-preset="mtd">MTD</button>
+    </div>
+    <span class="ctl-label">From</span>
+    <input type="date" id="start" />
+    <span class="ctl-label">to</span>
+    <input type="date" id="end" />
+    <button class="btn" id="apply">Apply</button>
+
+    <div class="spacer"></div>
+
+    <div class="seg" id="modeseg" title="Should an assisted order be removed from Online/Draft, or counted in both?">
+      <button data-mode="true" aria-pressed="true">Exclusive</button>
+      <button data-mode="false">Overlay</button>
+    </div>
+    <button class="btn" id="pause">Pause</button>
+    <button class="btn" id="refresh" title="Pull anything new from Shopify right now, instead of waiting for the next scheduled sync">Refresh now</button>
+    <button class="btn" id="theme">Light</button>
+  </div>
+
+  <div class="tiles" id="tiles">
+    <button class="tile online" data-bucket="online" aria-selected="true">
+      <div class="tile-head"><span class="swatch"></span><span class="tile-name">ONLINE ORDERS</span>
+        <span class="tile-rule">not draft · not POS</span></div>
+      <div class="hero" data-hero>—</div>
+      <div class="tile-sub"><span><b data-count>—</b> orders</span><span>AOV <b data-aov>—</b></span></div>
+      <div class="sharebar"><i data-share style="width:0%"></i></div>
+      <div class="sharepct" data-sharetext>—</div>
+    </button>
+
+    <button class="tile assisted" data-bucket="assisted">
+      <div class="tile-head"><span class="swatch"></span><span class="tile-name">ASSISTED ORDERS</span>
+        <span class="tile-rule" id="assistedrule">rule</span></div>
+      <div class="hero" data-hero>—</div>
+      <div class="tile-sub"><span><b data-count>—</b> orders</span><span>AOV <b data-aov>—</b></span></div>
+      <div class="sharebar"><i data-share style="width:0%"></i></div>
+      <div class="sharepct" data-sharetext>—</div>
+    </button>
+
+    <button class="tile draft" data-bucket="draft">
+      <div class="tile-head"><span class="swatch"></span><span class="tile-name">DRAFT ORDERS</span>
+        <span class="tile-rule">draft · not POS</span></div>
+      <div class="hero" data-hero>—</div>
+      <div class="tile-sub"><span><b data-count>—</b> orders</span><span>AOV <b data-aov>—</b></span></div>
+      <div class="sharebar"><i data-share style="width:0%"></i></div>
+      <div class="sharepct" data-sharetext>—</div>
+    </button>
+  </div>
+
+  <div class="strip">
+    <span>Non-POS revenue <b id="t-nonpos">—</b></span>
+    <span>Non-POS orders <b id="t-nonposn">—</b></span>
+    <span>POS revenue (excluded) <b id="t-pos">—</b></span>
+    <span>All channels <b id="t-all">—</b></span>
+    <span>Orders in view <b id="t-cached">—</b></span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-title">Daily revenue by bucket</div>
+      <div class="legend">
+        <span><i style="background:var(--series-online)"></i>Online</span>
+        <span><i style="background:var(--series-assisted)"></i>Assisted</span>
+        <span><i style="background:var(--series-draft)"></i>Draft</span>
+      </div>
+    </div>
+    <svg id="chart" role="img" aria-label="Daily revenue by bucket"></svg>
+  </div>
+
+  <div class="card">
+    <div class="table-head">
+      <div class="table-title"><i id="tt-swatch"></i><span id="tt-name">Online orders</span></div>
+      <span class="count-pill" id="tt-count">—</span>
+      <div class="spacer"></div>
+      <input type="search" id="search" placeholder="Filter order #, source, customer…" />
+      <button class="btn" id="csv">Export CSV</button>
+    </div>
+    <div class="tbl-scroll">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th data-sort="orderNumber">Order</th>
+            <th data-sort="createdAt">Placed<span class="arr">▼</span></th>
+            <th data-sort="customerName">Customer</th>
+            <th data-sort="netSale" class="num">Net sale</th>
+            <th data-sort="firstClick">First click</th>
+            <th data-sort="lastClick">Last click</th>
+            <th data-sort="trafficSource">Traffic source</th>
+            <th data-sort="channelName">Channel</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"><tr><td colspan="8" class="skeleton">Loading orders…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script type="module">
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+/* Data is refreshed server-side on a schedule, so the browser only needs to
+ * re-read the stored snapshot. Polling faster than this buys nothing. */
+const POLL_MS = 120000;
+const state = {
+  start: null, end: null, exclusive: true,
+  bucket: 'online', data: null,
+  sortKey: 'createdAt', sortDir: -1,
+  paused: false, timer: null, tick: null, nextAt: 0, inflight: false,
+  syncing: false, syncIntervalMin: 15, coverage: null,
+};
+
+/* ---------------- formatting ---------------- */
+const money = (n, cur = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(n || 0);
+const money2 = (n, cur = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, minimumFractionDigits: 2 }).format(n || 0);
+const int = (n) => new Intl.NumberFormat('en-US').format(n || 0);
+
+function heroMoney(el, n) {
+  const whole = Math.trunc(n || 0);
+  const cents = Math.round(((n || 0) - whole) * 100).toString().padStart(2, '0');
+  el.innerHTML = `${money(whole)}<span class="cents">.${cents}</span>`;
+}
+/* Every date on this page is rendered in the STORE's timezone, not the
+ * viewer's. Otherwise a row could read "Aug 17" while the chart counted that
+ * same order under Aug 16. */
+let TZ = 'America/New_York';
+const fmtDT = (iso) =>
+  iso ? new Date(iso).toLocaleString('en-US',
+    { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+const fmtDay = (d) =>
+  new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const shortUrl = (u) => {
+  if (!u) return '';
+  try { const x = new URL(u); return x.hostname.replace(/^www\./, '') + (x.pathname === '/' ? '' : x.pathname); }
+  catch { return u; }
+};
+
+/* ---------------- date helpers ---------------- */
+function shiftDays(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d) + n * 86400000);
+  return t.toISOString().slice(0, 10);
+}
+
+/* ---------------- data ---------------- */
+async function load() {
+  if (state.inflight) return;
+  state.inflight = true;
+  try {
+    const q = new URLSearchParams({
+      start: state.start, end: state.end,
+      exclusive: String(state.exclusive),
+    });
+    const res = await fetch(`/api/data?${q}`);
+    const body = await res.json();
+
+    if (res.status === 503 && body.needsBackfill) {
+      renderSetup(body.backfill);
+      return;
+    }
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+
+    state.data = body;
+    hideBanner();
+    render();
+    setLive();
+  } catch (err) {
+    setLive('err');
+    showBanner(`Couldn't load the snapshot: ${err.message}. Showing the last good data; retrying automatically.`);
+  } finally {
+    state.inflight = false;
+    state.nextAt = Date.now() + POLL_MS;
+  }
+}
+
+/** Ask the server to pull from Shopify right now, then re-read. */
+async function syncNow() {
+  if (state.syncing) return;
+  state.syncing = true;
+  $('#refresh').disabled = true;
+  setLive('syncing');
+  try {
+    const res = await fetch('/api/sync-now', { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok && body.reason === 'locked') {
+      showBanner('A scheduled sync is already running — showing the latest data.', true);
+    } else if (!res.ok && body.reason === 'needs-backfill') {
+      renderSetup(body.backfill);
+      return;
+    } else if (!res.ok) {
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    await load();
+  } catch (err) {
+    setLive('err');
+    showBanner(`Refresh failed: ${err.message}`);
+  } finally {
+    state.syncing = false;
+    $('#refresh').disabled = false;
+  }
+}
+
+/** First-run state: storage is empty until the backfill has seeded it. */
+function renderSetup(bf = {}) {
+  const running = bf.status === 'running';
+  showBanner(
+    running
+      ? `Backfill in progress — ${bf.pages || 0} pages, ${bf.nonPos || 0} online orders loaded so far. This page will pick it up automatically.`
+      : 'No data stored yet. Run the one-time backfill to seed the coverage window.'
+  );
+  const t = $('#livetext');
+  t.textContent = running ? 'seeding…' : 'not seeded';
+  $('#live').className = 'livedot err';
+  if (!running && !$('#seedbtn')) {
+    const b = document.createElement('button');
+    b.id = 'seedbtn';
+    b.className = 'btn';
+    b.textContent = 'Run backfill';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      await fetch('/api/backfill', { method: 'POST' }).catch(() => {});
+      showBanner('Backfill started. It runs in the background; this can take a few minutes.', true);
+    });
+    $('#refresh').after(b);
+  }
+  state.nextAt = Date.now() + 15000;
+}
+
+function showBanner(msg, note = false) {
+  const b = $('#banner');
+  b.textContent = msg;
+  b.className = 'banner show' + (note ? ' note' : '');
+}
+function hideBanner() { $('#banner').className = 'banner'; }
+
+/* The dashboard is near-real-time, not live: data is as old as the last
+ * server-side sync. Show that age honestly rather than a green dot that lies. */
+function ageText(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m === 1) return '1 min ago';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  return h === 1 ? '1 hr ago' : `${h} hr ago`;
+}
+
+function setLive(kind) {
+  const el = $('#live'), t = $('#livetext');
+
+  if (kind === 'syncing') { el.className = 'livedot'; t.textContent = 'syncing…'; return; }
+  if (kind === 'err')     { el.className = 'livedot err'; t.textContent = 'connection error'; return; }
+
+  const at = state.data?.syncedAt;
+  if (!at) { el.className = 'livedot'; t.textContent = 'no sync yet'; return; }
+
+  const age = Date.now() - at;
+  const graceMs = state.syncIntervalMin * 60000;
+  // Green while inside one sync interval, amber up to two, red beyond that.
+  const cls = age < graceMs * 1.5 ? '' : age < graceMs * 3 ? ' paused' : ' err';
+  el.className = 'livedot' + cls;
+  t.textContent = `updated ${ageText(age)}${state.paused ? ' · paused' : ''}`;
+  el.title = `Last Shopify sync: ${new Date(at).toLocaleString('en-US', { timeZone: TZ })} (store time) · syncs every ${state.syncIntervalMin} min`;
+}
+
+/* ---------------- render ---------------- */
+const NAMES = { online: 'Online orders', assisted: 'Assisted orders', draft: 'Draft orders' };
+const VARS  = { online: 'var(--series-online)', assisted: 'var(--series-assisted)', draft: 'var(--series-draft)' };
+
+function render() {
+  const d = state.data;
+  if (!d) return;
+  const total = ['online', 'assisted', 'draft'].reduce((s, k) => s + d.buckets[k].revenue, 0);
+
+  for (const key of ['online', 'assisted', 'draft']) {
+    const tile = $(`.tile[data-bucket="${key}"]`);
+    const b = d.buckets[key];
+    heroMoney($('[data-hero]', tile), b.revenue);
+    $('[data-count]', tile).textContent = int(b.orderCount);
+    $('[data-aov]', tile).textContent = money(b.avgOrderValue);
+    const pct = total > 0 ? (b.revenue / total) * 100 : 0;
+    $('[data-share]', tile).style.width = `${pct.toFixed(1)}%`;
+    $('[data-sharetext]', tile).textContent = `${pct.toFixed(1)}% of non-POS revenue`;
+    tile.setAttribute('aria-selected', String(key === state.bucket));
+  }
+
+  $('#t-nonpos').textContent  = money2(d.totals.nonPosRevenue);
+  $('#t-nonposn').textContent = int(d.totals.nonPosOrders);
+  $('#t-pos').textContent     = `${money2(d.totals.posRevenue)} · ${int(d.totals.posOrders)} orders`;
+  $('#t-all').textContent     = money2(d.totals.allRevenue);
+  $('#t-cached').textContent  = int(d.ordersInStore ?? 0);
+
+  $('#sub').textContent =
+    `CLB XXIII · ${fmtDay(d.range.start)} – ${fmtDay(d.range.end)} · ${d.exclusive ? 'exclusive buckets' : 'assisted overlaid'} · syncs every ${state.syncIntervalMin} min`;
+
+  if (!d.exclusive) {
+    showBanner('Overlay mode: assisted orders are also counted inside Online or Draft, so the three tiles intentionally sum to more than the non-POS total.', true);
+  }
+
+  drawChart(d.daily);
+  renderTable();
+}
+
+/* ---------------- stacked bar chart ---------------- */
+const SERIES = [
+  { key: 'online',   label: 'Online',   color: 'var(--series-online)' },
+  { key: 'assisted', label: 'Assisted', color: 'var(--series-assisted)' },
+  { key: 'draft',    label: 'Draft',    color: 'var(--series-draft)' },
+];
+
+function drawChart(daily) {
+  const svg = $('#chart');
+  const W = svg.clientWidth || 900, H = 190;
+  const M = { t: 14, r: 8, b: 24, l: 54 };
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const mk = (n, a = {}) => { const e = document.createElementNS(ns, n);
+    for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); return e; };
+
+  if (!daily.length) {
+    const t = mk('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle' });
+    t.textContent = 'No orders in this range';
+    svg.appendChild(t); return;
+  }
+
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const max = Math.max(...daily.map((d) => d.online + d.assisted + d.draft), 1);
+  const nice = niceMax(max);
+  const y = (v) => M.t + ih - (v / nice) * ih;
+  const bw = Math.min(46, (iw / daily.length) * 0.62);
+  const step = iw / daily.length;
+
+  for (const gv of [0, nice / 2, nice]) {
+    svg.appendChild(mk('line', { x1: M.l, x2: W - M.r, y1: y(gv), y2: y(gv),
+      stroke: gv === 0 ? 'var(--baseline)' : 'var(--grid)', 'stroke-width': 1 }));
+    const lb = mk('text', { x: M.l - 8, y: y(gv) + 4, 'text-anchor': 'end' });
+    lb.textContent = gv >= 1000 ? `$${Math.round(gv / 1000)}k` : `$${Math.round(gv)}`;
+    svg.appendChild(lb);
+  }
+
+  daily.forEach((d, i) => {
+    const cx = M.l + step * i + step / 2;
+    let acc = 0;
+    const stackTotal = d.online + d.assisted + d.draft;
+    // Draw bottom-up; 2px surface gap between stacked segments.
+    for (const s of SERIES) {
+      const v = d[s.key];
+      if (v <= 0) continue;
+      const yTop = y(acc + v), yBot = y(acc);
+      const h = Math.max(1, yBot - yTop - (acc > 0 ? 2 : 0));
+      const isTop = acc + v >= stackTotal - 0.001;
+      svg.appendChild(mk('rect', {
+        x: cx - bw / 2, y: yTop, width: bw, height: h,
+        fill: s.color, rx: isTop ? 4 : 0, ry: isTop ? 4 : 0,
+      }));
+      acc += v;
+    }
+    const hit = mk('rect', { x: cx - step / 2, y: M.t, width: step, height: ih, fill: 'transparent' });
+    hit.style.cursor = 'crosshair';
+    hit.addEventListener('mousemove', (e) => showTip(e, d));
+    hit.addEventListener('mouseleave', hideTip);
+    svg.appendChild(hit);
+
+    if (daily.length <= 16 || i % Math.ceil(daily.length / 12) === 0) {
+      const lb = mk('text', { x: cx, y: H - 7, 'text-anchor': 'middle' });
+      lb.textContent = fmtDay(d.day);
+      svg.appendChild(lb);
+    }
+  });
+}
+
+/* Round the axis up to the next readable number. The old version stepped in
+ * halves, which turned an $11k day into a $15k axis and a lot of dead space;
+ * this ladder keeps the tallest bar close to the top. Every step is divisible
+ * by 2 so the midline label stays clean. */
+const NICE_STEPS = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+function niceMax(v) {
+  const mag = 10 ** Math.floor(Math.log10(v));
+  const scaled = v / mag;
+  return (NICE_STEPS.find((s) => scaled <= s + 1e-9) ?? 10) * mag;
+}
+
+function showTip(e, d) {
+  const tip = $('#tooltip');
+  const total = d.online + d.assisted + d.draft;
+  tip.innerHTML =
+    `<div class="tt-day">${fmtDay(d.day)}</div>` +
+    SERIES.map((s) => `<div class="tt-row"><i style="background:${s.color}"></i>${s.label}<b>${money2(d[s.key])}</b></div>`).join('') +
+    `<div class="tt-row" style="margin-top:5px;border-top:1px solid var(--grid);padding-top:5px">Total<b>${money2(total)}</b></div>`;
+  tip.style.left = `${e.clientX}px`;
+  tip.style.top = `${e.clientY}px`;
+  tip.style.opacity = '1';
+}
+function hideTip() { $('#tooltip').style.opacity = '0'; }
+
+/* ---------------- table ---------------- */
+function sortVal(o, k) {
+  if (k === 'firstClick') return (o.firstClick?.source || '').toLowerCase();
+  if (k === 'lastClick')  return (o.lastClick?.source || '').toLowerCase();
+  if (k === 'netSale')    return o.netSale;
+  if (k === 'createdAt')  return new Date(o.createdAt).getTime();
+  return String(o[k] || '').toLowerCase();
+}
+
+function renderTable() {
+  const d = state.data;
+  if (!d) return;
+  const b = d.buckets[state.bucket];
+  $('#tt-name').textContent = NAMES[state.bucket];
+  $('#tt-swatch').style.background = VARS[state.bucket];
+  $('#tt-count').textContent = `${int(b.orderCount)} orders · ${money2(b.revenue)}`;
+
+  const q = $('#search').value.trim().toLowerCase();
+  let rows = b.orders;
+  if (q) {
+    rows = rows.filter((o) =>
+      [o.orderNumber, o.customerName, o.trafficSource, o.channelName, o.creditedTo,
+       o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage]
+        .filter(Boolean).join(' ').toLowerCase().includes(q));
+  }
+  rows = [...rows].sort((a, z) => {
+    const av = sortVal(a, state.sortKey), zv = sortVal(z, state.sortKey);
+    return (av < zv ? -1 : av > zv ? 1 : 0) * state.sortDir;
+  });
+
+  const tb = $('#tbody');
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="8" class="empty">No orders match.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = rows.map((o) => `
+    <tr>
+      <td class="ord">
+        <a href="${o.adminUrl}" target="_blank" rel="noopener">${esc(o.orderNumber)}</a>
+        ${o.creditedTo ? `<span class="sub"><span class="chip credit">credit: ${esc(o.creditedTo)}</span></span>` : ''}
+        ${o.cancelled ? `<span class="sub"><span class="chip cancelled">cancelled</span></span>` : ''}
+      </td>
+      <td>${fmtDT(o.createdAt)}</td>
+      <td>${esc(o.customerName || '—')}</td>
+      <td class="num">${money2(o.netSale, o.currency)}${o.refunded > 0
+        ? `<span class="sub">−${money2(o.refunded, o.currency)} refunded</span>` : ''}</td>
+      <td>${clickCell(o.firstClick)}</td>
+      <td>${clickCell(o.lastClick)}</td>
+      <td><span class="chip">${esc(o.trafficSource)}</span>${o.touchpoints
+        ? `<span class="sub">${o.touchpoints} touchpoint${o.touchpoints === 1 ? '' : 's'}${
+            o.daysToConversion ? ` · ${o.daysToConversion}d to convert` : ''}</span>` : ''}</td>
+      <td>${esc(o.channelName || '—')}</td>
+    </tr>`).join('');
+}
+
+function clickCell(c) {
+  if (!c) return '<span style="color:var(--text-muted)">no journey data</span>';
+  const sub = c.campaign || shortUrl(c.landingPage) || c.detail || '';
+  return `${esc(c.source)}<span class="sub" title="${esc(c.landingPage || c.detail || '')}">${esc(sub)}</span>`;
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* ---------------- CSV ---------------- */
+function exportCSV() {
+  const b = state.data?.buckets[state.bucket];
+  if (!b) return;
+  const head = ['Order','Placed (ISO)','Placed (store time)','Customer','Net sale','Refunded','First click source','First click landing page',
+    'Last click source','Last click landing page','Traffic source','Touchpoints','Channel','Credited to'];
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [head.map(q).join(',')];
+  for (const o of b.orders) {
+    lines.push([o.orderNumber, o.createdAt, fmtDT(o.createdAt), o.customerName, o.netSale, o.refunded,
+      o.firstClick?.source, o.firstClick?.landingPage, o.lastClick?.source, o.lastClick?.landingPage,
+      o.trafficSource, o.touchpoints, o.channelName, o.creditedTo].map(q).join(','));
+  }
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `clb23-${state.bucket}-${state.start}_to_${state.end}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------------- events ---------------- */
+$$('#tiles .tile').forEach((t) => t.addEventListener('click', () => {
+  state.bucket = t.dataset.bucket;
+  $$('#tiles .tile').forEach((x) => x.setAttribute('aria-selected', String(x === t)));
+  renderTable();
+  $('#tbl').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}));
+
+$$('#presets button').forEach((btn) => btn.addEventListener('click', () => {
+  $$('#presets button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  const p = btn.dataset.preset;
+  const today = state.today;
+  if (p === 'today') { state.start = today; state.end = today; }
+  else if (p === 'mtd') { state.start = today.slice(0, 8) + '01'; state.end = today; }
+  else { state.end = today; state.start = shiftDays(today, -(Number(p) - 1)); }
+  $('#start').value = state.start; $('#end').value = state.end;
+  load();
+}));
+
+$('#apply').addEventListener('click', () => {
+  const s = $('#start').value, e = $('#end').value;
+  if (!s || !e) return;
+  if (s > e) { showBanner('Start date must be on or before the end date.'); return; }
+  state.start = s; state.end = e;
+  $$('#presets button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  load();
+});
+
+$$('#modeseg button').forEach((btn) => btn.addEventListener('click', () => {
+  $$('#modeseg button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  state.exclusive = btn.dataset.mode === 'true';
+  if (state.exclusive) hideBanner();
+  load();
+}));
+
+$('#pause').addEventListener('click', () => {
+  state.paused = !state.paused;
+  $('#pause').textContent = state.paused ? 'Resume' : 'Pause';
+  setLive();
+});
+$('#refresh').addEventListener('click', syncNow);
+$('#csv').addEventListener('click', exportCSV);
+$('#search').addEventListener('input', renderTable);
+
+$('#theme').addEventListener('click', () => {
+  const light = document.documentElement.dataset.theme === 'light';
+  document.documentElement.dataset.theme = light ? 'dark' : 'light';
+  $('#theme').textContent = light ? 'Light' : 'Dark';
+  if (state.data) drawChart(state.data.daily);
+});
+
+$$('#tbl thead th').forEach((th) => th.addEventListener('click', () => {
+  const k = th.dataset.sort;
+  if (state.sortKey === k) state.sortDir *= -1;
+  else { state.sortKey = k; state.sortDir = k === 'netSale' || k === 'createdAt' ? -1 : 1; }
+  $$('#tbl thead th .arr').forEach((a) => a.remove());
+  const arr = document.createElement('span');
+  arr.className = 'arr';
+  arr.textContent = state.sortDir === 1 ? '▲' : '▼';
+  th.appendChild(arr);
+  renderTable();
+}));
+
+let rt;
+addEventListener('resize', () => {
+  clearTimeout(rt);
+  rt = setTimeout(() => state.data && drawChart(state.data.daily), 150);
+});
+
+/* ---------------- boot ---------------- */
+const cfg = await (await fetch('/api/config')).json();
+state.today = cfg.defaults.end;
+state.start = cfg.defaults.start;
+state.end = cfg.defaults.end;
+$('#start').value = state.start;
+$('#end').value = state.end;
+
+TZ = cfg.timezone || TZ;
+state.syncIntervalMin = cfg.syncIntervalMinutes || 15;
+state.coverage = cfg.coverage;
+
+// Nothing older than the coverage window is in storage, so don't let the date
+// picker ask for it.
+$('#start').min = cfg.coverage.start;
+$('#end').min = cfg.coverage.start;
+$('#start').max = cfg.coverage.end;
+$('#end').max = cfg.coverage.end;
+
+const on = Object.entries(cfg.assistedRule.signals).filter(([, v]) => v).map(([k]) => k);
+$('#assistedrule').textContent = on.length
+  ? `${on.join(' · ')} (${cfg.assistedRule.mode})`
+  : 'no rule set';
+
+await load();
+
+setInterval(() => {
+  if (!state.paused && document.visibilityState === 'visible') load();
+}, POLL_MS);
+
+// Keep the "updated N min ago" label honest between polls.
+setInterval(() => { if (!state.syncing && state.data) setLive(); }, 15000);
+
+// Coming back to a tab that has been hidden for a while should re-read at once.
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !state.paused && Date.now() > state.nextAt) load();
+});
+</script>
+</body>
+</html>
