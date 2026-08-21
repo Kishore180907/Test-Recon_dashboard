@@ -2,6 +2,7 @@
 
 import { getWatermark, getBackfill } from '../../lib/repo.js';
 import { coverageWindow, COVERAGE_DAYS } from '../../lib/sync.js';
+import { credentialMode } from '../../lib/token.js';
 
 export default async () => {
   const [watermark, backfill] = await Promise.all([getWatermark(), getBackfill()]);
@@ -13,6 +14,7 @@ export default async () => {
       ? Math.round((Date.now() - watermark.lastSyncAt) / 1000)
       : null,
     backfill: backfill || { status: 'not-started' },
+    credentials: credentialMode(),
     ready: Boolean(watermark) || backfill?.status === 'done',
   };
   return new Response(JSON.stringify(body), {
