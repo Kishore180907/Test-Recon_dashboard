@@ -2,6 +2,8 @@
  *  Shopify Admin GraphQL client + order fetcher
  * ========================================================================== */
 
+import { getAccessToken, invalidateToken } from './token.js';
+
 const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-07';
 
 function endpoint() {
@@ -14,8 +16,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** POST a GraphQL query, with retry on throttling and 5xx. */
 export async function gql(query, variables = {}, attempt = 0) {
-  const token = process.env.SHOPIFY_ADMIN_TOKEN;
-  if (!token) throw new Error('SHOPIFY_ADMIN_TOKEN is not set');
+  const token = await getAccessToken();
 
   let res;
   try {
@@ -42,6 +43,14 @@ export async function gql(query, variables = {}, attempt = 0) {
       return gql(query, variables, attempt + 1);
     }
     throw new Error(`Shopify HTTP ${res.status}: ${await res.text()}`);
+  }
+
+  // A short-lived client-credentials token can lapse mid-run. One forced
+  // re-exchange distinguishes an expired token from genuinely wrong scopes.
+  if (res.status === 401 && attempt < 2) {
+    invalidateToken();
+    await getAccessToken({ force: true });
+    return gql(query, variables, attempt + 1);
   }
 
   if (!res.ok) {
