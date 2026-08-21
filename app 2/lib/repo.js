@@ -69,7 +69,11 @@ export async function upsertOrders(orders) {
 
   for (const [month, map] of byMonth) {
     const key = `m/${month}`;
-    const existing = (await getJSON(ORDERS, key)) || {};
+    // Strong consistency is mandatory here. This is a read-modify-write, and the
+    // backfill hammers the same month shard from consecutive pages seconds apart.
+    // An eventually-consistent read can return a stale copy, and writing it back
+    // silently drops every order the previous pages added.
+    const existing = (await getJSON(ORDERS, key, { strong: true })) || {};
     for (const [id, o] of map) existing[id] = o;
     await setJSON(ORDERS, key, existing);
     touched.add(month);
@@ -79,7 +83,7 @@ export async function upsertOrders(orders) {
    * the same order updates its amount instead of double-counting it. */
   for (const [month, days] of posByMonth) {
     const key = `p/${month}`;
-    const existing = (await getJSON(ORDERS, key)) || {};
+    const existing = (await getJSON(ORDERS, key, { strong: true })) || {};
     for (const [day, amounts] of days) {
       const entries = { ...(existing[day]?.entries || {}), ...amounts };
       const values = Object.values(entries);
