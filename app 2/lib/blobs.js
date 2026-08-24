@@ -14,14 +14,27 @@ const useNetlify = () =>
   Boolean(process.env.NETLIFY || process.env.NETLIFY_BLOBS_CONTEXT);
 
 /* ---- Netlify backend ------------------------------------------------------ */
+/*
+ * Every store is opened with strong consistency, deliberately.
+ *
+ * Two reasons, both learned the hard way in production:
+ *   1. The eventually-consistent read path returned "Failed to decode token:
+ *      Token expired" 500s while strong reads on the same site kept working,
+ *      taking the whole dashboard down.
+ *   2. The backfill does a read-modify-write on the same month shard from
+ *      consecutive pages seconds apart. A stale read there silently drops every
+ *      order the previous pages added.
+ *
+ * Strong reads cost a little latency. At this data size — a few hundred orders
+ * across four month shards — that is not worth trading for either failure.
+ */
 const netlifyStores = new Map();
-async function nlStore(name, consistency) {
-  const key = `${name}:${consistency || 'eventual'}`;
-  if (!netlifyStores.has(key)) {
+async function nlStore(name) {
+  if (!netlifyStores.has(name)) {
     const { getStore } = await import('@netlify/blobs');
-    netlifyStores.set(key, getStore({ name, consistency: consistency || 'eventual' }));
+    netlifyStores.set(name, getStore({ name, consistency: 'strong' }));
   }
-  return netlifyStores.get(key);
+  return netlifyStores.get(name);
 }
 
 /* ---- Local filesystem backend --------------------------------------------- */
@@ -30,13 +43,10 @@ const fsPath = (store, key) => path.join(ROOT, store, `${encodeURIComponent(key)
 
 /* ---- Public API ----------------------------------------------------------- */
 
-/**
- * Read a JSON value. `strong: true` bypasses eventual consistency — use it for
- * the sync watermark and lock, where a stale read causes duplicate work.
- */
-export async function getJSON(store, key, { strong = false } = {}) {
+/** Read a JSON value. Always a strongly-consistent read — see nlStore above. */
+export async function getJSON(store, key) {
   if (useNetlify()) {
-    const s = await nlStore(store, strong ? 'strong' : 'eventual');
+    const s = await nlStore(store);
     return (await s.get(key, { type: 'json' })) ?? null;
   }
   try {
