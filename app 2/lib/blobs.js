@@ -28,13 +28,21 @@ const useNetlify = () =>
  * Strong reads cost a little latency. At this data size — a few hundred orders
  * across four month shards — that is not worth trading for either failure.
  */
-const netlifyStores = new Map();
+/*
+* The store handle is built fresh on every call, never cached at module scope.
+*
+* Caching it looks like an easy win and is a trap: the handle closes over the
+* blobs auth token from the invocation that created it. A function polled every
+* couple of minutes keeps its container warm indefinitely, so the cached handle
+* outlives its token and every later read fails with "Failed to decode token:
+* Token expired" — while rarely-invoked functions, which get a cold container
+* and a fresh token, keep working. That asymmetry is what this cost us.
+*
+* getStore() only parses environment config, so rebuilding it is cheap.
+*/
 async function nlStore(name) {
-  if (!netlifyStores.has(name)) {
-    const { getStore } = await import('@netlify/blobs');
-    netlifyStores.set(name, getStore({ name, consistency: 'strong' }));
-  }
-  return netlifyStores.get(name);
+  const { getStore } = await import('@netlify/blobs');
+  return getStore({ name, consistency: 'strong' });
 }
 
 /* ---- Local filesystem backend --------------------------------------------- */
