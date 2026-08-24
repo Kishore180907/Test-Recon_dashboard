@@ -252,6 +252,105 @@
     font-size: 12px; color: var(--text-muted); margin-bottom: 10px;
   }
   .ads-strip b { color: var(--text-primary); font-weight: 620; font-variant-numeric: tabular-nums; }
+
+  /* ---------- "How to read this" guide ---------- */
+  .helpbtn {
+    vertical-align: 3px; margin-left: 8px;
+    background: transparent; border: 1px solid var(--border); border-radius: 999px;
+    color: var(--text-secondary); font: inherit; font-size: 11.5px; font-weight: 500;
+    padding: 3px 11px; cursor: pointer;
+  }
+  .helpbtn:hover { background: var(--wash); color: var(--text-primary); border-color: var(--text-muted); }
+
+  .guide-scrim {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
+  }
+  .guide-scrim.open { display: block; }
+
+  .guide {
+    position: fixed; inset: 0; z-index: 61; display: none;
+    /* No top padding, deliberately. The header below sticks to the top of this
+       scrollport, so any padding here becomes a gap that page content scrolls
+       up into and shows above the supposedly-pinned header. */
+    padding: 0 20px 28px; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .guide.open { display: block; }
+  .guide-card {
+    max-width: 880px; margin: 28px auto 0;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.45);
+  }
+  .guide-top {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; gap: 16px;
+    padding: 15px 26px;
+    background: var(--surface-1); border-bottom: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+  }
+  .guide-top h2 { margin: 0; font-size: 17px; font-weight: 640; letter-spacing: -0.01em; }
+  .guide-lead {
+    margin: 18px 0 0; font-size: 13px; color: var(--text-muted);
+    line-height: 1.6; max-width: 66ch;
+  }
+  .guide-close {
+    margin-left: auto; flex: none;
+    background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); font: inherit; font-size: 12.5px; padding: 5px 11px; cursor: pointer;
+  }
+  .guide-close:hover { background: var(--wash); color: var(--text-primary); }
+
+  .guide-body { padding: 6px 26px 30px; }
+  .guide section { padding: 20px 0; border-bottom: 1px solid var(--grid); }
+  .guide section:last-child { border-bottom: 0; padding-bottom: 4px; }
+  .guide h3 {
+    margin: 0 0 8px; font-size: 14.5px; font-weight: 640; letter-spacing: -0.005em;
+    display: flex; align-items: baseline; gap: 9px;
+  }
+  .guide h3 .step {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .07em; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; flex: none;
+  }
+  .guide p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.62; color: var(--text-secondary); max-width: 68ch; }
+  .guide p:last-child { margin-bottom: 0; }
+  .guide strong { color: var(--text-primary); font-weight: 620; }
+  .guide em { font-style: normal; color: var(--text-primary); }
+
+  .guide figure { margin: 14px 0 4px; }
+  .guide figure img {
+    display: block; width: 100%; height: auto;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--plane);
+  }
+  .guide figcaption { margin-top: 7px; font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+
+  .guide .qa { margin: 12px 0 0; padding-left: 0; list-style: none; }
+  .guide .qa li {
+    font-size: 13px; line-height: 1.6; color: var(--text-secondary);
+    padding: 9px 0 9px 15px; border-left: 2px solid var(--grid);
+  }
+  .guide .qa li + li { margin-top: 2px; }
+  .guide .qa b { display: block; color: var(--text-primary); font-weight: 600; margin-bottom: 2px; }
+
+  .guide .callout {
+    margin: 14px 0 0; padding: 12px 14px; border-radius: 10px;
+    background: var(--wash); border: 1px solid var(--border);
+    font-size: 12.5px; line-height: 1.6; color: var(--text-secondary);
+  }
+  .guide .callout b { color: var(--text-primary); }
+
+  .guide .keyline { display: inline-block; padding: 0 5px; border: 1px solid var(--border);
+    border-radius: 5px; font-size: 12px; color: var(--text-primary); }
+
+  @media (max-width: 620px) {
+    .guide { padding: 0 10px 12px; }
+    .guide-card { margin-top: 12px; }
+    .guide-top, .guide-body { padding-left: 16px; padding-right: 16px; }
+    /* Shrinking a screenshot of a nine-column table to phone width makes it
+       unreadable. Let the wide ones scroll sideways instead. */
+    .guide figure { overflow-x: auto; }
+    .guide figure img { min-width: 560px; }
+    .guide figcaption { position: sticky; left: 0; }
+  }
 </style>
 </head>
 <body>
@@ -259,7 +358,7 @@
 
   <header class="top">
     <div class="brand">
-      <h1>Order Mix</h1>
+      <h1>Order Mix <button class="helpbtn" id="help" aria-haspopup="dialog">How to read this</button></h1>
       <p id="sub">CLB XXIII · loading…</p>
     </div>
     <div class="livedot" id="live"><i></i><span id="livetext">connecting…</span></div>
@@ -406,6 +505,175 @@
         </thead>
         <tbody id="tbody"><tr><td colspan="8" class="skeleton">Loading orders…</td></tr></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<div class="guide-scrim" id="guide-scrim"></div>
+<div class="guide" id="guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" hidden>
+  <div class="guide-card">
+    <div class="guide-top">
+      <h2 id="guide-title">How to read this</h2>
+      <button class="guide-close" id="guide-close">Close</button>
+    </div>
+
+    <div class="guide-body">
+      <p class="guide-lead">Five minutes, in plain English. Every picture below is a real
+         screenshot of this page — the numbers in them are sample data, not your store.</p>
+
+      <section>
+        <h3><span class="step">1</span> What you are looking at</h3>
+        <p>Every online order your store took, sorted by <em>what actually made the sale
+           happen</em>. Not where the money came from — who or what closed it.</p>
+        <figure>
+          <img loading="lazy" src="/guide/buckets.png"
+               alt="Three tiles side by side: Online orders, Assisted orders and Draft orders, each showing revenue, order count and average order value." />
+          <figcaption>The three tiles always add up to your total online revenue for the dates you picked.</figcaption>
+        </figure>
+        <ul class="qa">
+          <li><b>Online</b> The customer found you, shopped and checked out on their own. Nobody
+              from your team touched it.</li>
+          <li><b>Assisted</b> Someone helped. Either a staff member is credited on the order note,
+              or the customer came in through an ad or a marketing email before buying.</li>
+          <li><b>Draft</b> Written up by hand in Shopify and sent to the customer as an invoice —
+              and the customer arrived on their own, with no ad or campaign in their history.</li>
+        </ul>
+        <div class="callout">
+          <b>In-store sales are not in here.</b> Anything rung up on the POS is counted
+          separately in the grey strip under the tiles, so it never inflates these three numbers.
+        </div>
+      </section>
+
+      <section>
+        <h3><span class="step">2</span> Three things people usually come here to find out</h3>
+        <ul class="qa">
+          <li><b>“How much of last week did the team actually sell?”</b>
+              Click <span class="keyline">7 days</span>, then read the Assisted tile. The share
+              underneath tells you what portion of revenue that was.</li>
+          <li><b>“Is our ad spend doing anything?”</b>
+              Open a bucket and look down the First click and Last click columns. Orders that
+              started at facebook, ig or Google were reached by advertising, whoever closed them.</li>
+          <li><b>“Which of us closed the big orders this month?”</b>
+              Click <span class="keyline">MTD</span>, open Assisted, then click the
+              <span class="keyline">Net sale</span> column heading to sort largest first. The
+              orange chip under each order number is the staff member credited on it.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3><span class="step">3</span> Choosing your dates</h3>
+        <figure>
+          <img loading="lazy" src="/guide/range.png"
+               alt="The controls bar: Today, 7 days, 30 days, 90 days and MTD buttons, a From and to date picker with an Apply button, and Exclusive, Overlay, Pause, Refresh now and Light buttons." />
+          <figcaption>Presets on the left, a custom range in the middle, display options on the right.</figcaption>
+        </figure>
+        <p>The presets cover most of it. For anything else, set <strong>From</strong> and
+           <strong>to</strong> and press <strong>Apply</strong>. You can go back 90 days;
+           older than that is not kept.</p>
+        <p><strong>Exclusive</strong> and <strong>Overlay</strong> change one thing. Exclusive is
+           the normal view: every order sits in exactly one tile, so the three add up to your
+           total. Overlay lets an assisted order appear in its own tile <em>and</em> in Online or
+           Draft, which is useful for spotting overlap but means the tiles deliberately add up to
+           more than the total.</p>
+        <p><strong>Refresh now</strong> pulls straight from Shopify instead of waiting for the
+           next scheduled check. <strong>Pause</strong> stops the page updating under you while
+           you are reading it.</p>
+      </section>
+
+      <section>
+        <h3><span class="step">4</span> The daily chart</h3>
+        <figure>
+          <img loading="lazy" src="/guide/chart.png"
+               alt="A stacked bar chart titled Daily revenue by bucket, with one bar per day split into Online, Assisted and Draft segments." />
+          <figcaption>One bar per day, split by the same three colours as the tiles. Hover a bar for the exact figures.</figcaption>
+        </figure>
+        <p>Use it to spot the shape of a week rather than the detail: a Tuesday that is almost all
+           Draft, a weekend that is almost all Online. A single very tall bar is usually one large
+           invoice, and clicking through to the table will show you which.</p>
+      </section>
+
+      <section>
+        <h3><span class="step">5</span> Opening a tile to see the orders</h3>
+        <p>Click any tile and the table below fills with the orders behind that number.</p>
+        <figure>
+          <img loading="lazy" src="/guide/journey.png"
+               alt="Order table showing columns for Order, Placed, Customer, Net sale, First click, Last click, Traffic source and Converted via. One row carries a violet ad spend chip." />
+          <figcaption>The order number links straight to Shopify. Click any column heading to sort by it.</figcaption>
+        </figure>
+        <ul class="qa">
+          <li><b>First click</b> How the customer first found you, which can be weeks before they
+              bought. The grey line underneath is the page they landed on, or the campaign name.</li>
+          <li><b>Last click</b> Where they came from on the visit they actually bought on.</li>
+          <li><b>Traffic source</b> The last click again, plus how many separate visits it took
+              and how many days from first visit to purchase.</li>
+          <li><b>Converted via</b> How the sale physically closed — a normal storefront checkout,
+              the Shop app, or a draft invoice link you sent them.</li>
+          <li><b>The violet <span class="keyline">ad spend</span> chip</b> Meta was genuinely
+              being billed for that campaign during these dates. It is the difference between a
+              link that merely says “facebook” and money actually being spent.</li>
+        </ul>
+        <p>“No journey data” is not a fault. Shopify simply never resolved where that customer
+           came from, which happens with app orders and some repeat customers.</p>
+      </section>
+
+      <section>
+        <h3><span class="step">6</span> Assisted orders, and who gets credit</h3>
+        <figure>
+          <img loading="lazy" src="/guide/assisted.png"
+               alt="Assisted orders table with orange credit chips reading credit: Ruby and credit: JR under the order numbers, and Draft order in the Converted via column." />
+          <figcaption>The orange chip is read from the order note in Shopify — “Credit: Ruby”, “Cred: JR”, and so on.</figcaption>
+        </figure>
+        <p>Two different things land an order here, and it helps to know which.</p>
+        <ul class="qa">
+          <li><b>A staff credit</b> Someone wrote a credit note on the order in Shopify. That
+              person's name shows in the orange chip.</li>
+          <li><b>A marketing touch on a draft order</b> The order was written up by hand, but the
+              customer had already come through an ad, an email or a referring site. Marketing
+              did part of the work, so the sale is counted as assisted rather than draft.</li>
+        </ul>
+        <div class="callout">
+          <b>The rule for drafts, exactly.</b> A hand-written order stays in <b>Draft</b> only when
+          both its first and last touch are Direct. If either one names a marketing or ad
+          platform, it moves to <b>Assisted</b>. An order with no journey data at all stays in
+          Draft — Shopify not knowing where someone came from is not evidence of advertising.
+        </div>
+      </section>
+
+      <section>
+        <h3><span class="step">7</span> What Meta says, next to what your store says</h3>
+        <figure>
+          <img loading="lazy" src="/guide/campaigns.png"
+               alt="Campaigns panel comparing Shopify last-click orders and net sale against Meta spend, purchases, value and ROAS, with a Gap column." />
+          <figcaption>This panel only appears once Meta Ads is connected.</figcaption>
+        </figure>
+        <p>The two sides are matched on campaign name, and they are <em>supposed</em> to disagree.
+           Meta counts people who saw an ad and bought later on another device, or without ever
+           clicking. Those arrive at your store with nothing attached, so Shopify records them as
+           Direct.</p>
+        <p>That difference is the <strong>Gap</strong> column. <strong>+4</strong> means Meta
+           claims four more purchases than your store credited to that campaign. It is not an
+           error to be fixed — it is the reason to treat some of that week's “Direct” orders as
+           ad-influenced.</p>
+        <p>A campaign with Meta spend and no Shopify orders at all is the same story in its
+           strongest form. A campaign with orders and no spend simply was not running in these
+           dates.</p>
+      </section>
+
+      <section>
+        <h3><span class="step">8</span> Worth knowing</h3>
+        <ul class="qa">
+          <li><b>How fresh is this?</b> The store is checked every 15 minutes. The header tells
+              you how long ago that was, and the dot turns grey if it has gone quiet.</li>
+          <li><b>Whose clock?</b> Every date and time is your store's local time, so “today”
+              means the same thing here as it does in Shopify.</li>
+          <li><b>What does Net sale include?</b> What you actually kept — refunds are already
+              taken off. Cancelled orders stay listed, marked in red, so the count still
+              reconciles against Shopify.</li>
+          <li><b>Getting it into a spreadsheet</b> Export CSV hands you everything in the open
+              tile, attribution columns and all.</li>
+        </ul>
+      </section>
+
     </div>
   </div>
 </div>
@@ -902,6 +1170,36 @@ $('#theme').addEventListener('click', () => {
   document.documentElement.dataset.theme = light ? 'dark' : 'light';
   $('#theme').textContent = light ? 'Light' : 'Dark';
   if (state.data) drawChart(state.data.daily);
+});
+
+/* ---------------- the guide ---------------- */
+/* Opened from beside the title. Polling carries on underneath — the guide is
+ * something you read while the numbers behind it stay live. */
+function openGuide() {
+  $('#guide').hidden = false;
+  $('#guide').classList.add('open');
+  $('#guide-scrim').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  $('#guide').scrollTop = 0;
+  $('#guide-close').focus();
+}
+function closeGuide() {
+  $('#guide').classList.remove('open');
+  $('#guide').hidden = true;
+  $('#guide-scrim').classList.remove('open');
+  document.body.style.overflow = '';
+  $('#help').focus();
+}
+$('#help').addEventListener('click', openGuide);
+$('#guide-close').addEventListener('click', closeGuide);
+$('#guide-scrim').addEventListener('click', closeGuide);
+// Clicking the dimmed margin around the card closes it too; clicking the card
+// itself must not, or every stray click while reading would dismiss the thing.
+$('#guide').addEventListener('click', (e) => {
+  if (!e.target.closest('.guide-card')) closeGuide();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#guide').hidden) closeGuide();
 });
 
 $$('#tbl thead th').forEach((th) => th.addEventListener('click', () => {
