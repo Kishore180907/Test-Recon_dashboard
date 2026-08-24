@@ -13,6 +13,21 @@
   node_bundler = "esbuild"
   directory = "netlify/functions"
 
+# The cron lives here, not only in scheduled-sync.mjs.
+#
+# That file exports `config = { schedule: process.env.SYNC_CRON || '*/15 * * * *' }`.
+# Netlify reads an in-code config by parsing the source at build time, not by
+# running it, so a computed expression is not a cron string it can recognise —
+# the function deployed fine and was simply never registered on a schedule.
+# It sat there for days: no invocations, no log lines, and a dashboard whose
+# data only ever moved when someone pressed Refresh now.
+#
+# A schedule declared here is read straight from the config file, so there is
+# no expression to misparse. Keep this in step with SYNC_INTERVAL_MINUTES,
+# which is only the label the header shows.
+[functions."scheduled-sync"]
+  schedule = "*/15 * * * *"
+
 # Give the on-demand endpoints headroom inside the sync-function ceiling.
 [functions."sync-now"]
   timeout = 26

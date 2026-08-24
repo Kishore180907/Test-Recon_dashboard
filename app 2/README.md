@@ -4,6 +4,8 @@ Near-real-time revenue split for the store: **Online**, **Assisted**, **Draft** 
 
 Runs on Netlify's free tier: static page + functions + Blobs.
 
+**[DOCS.md](DOCS.md) is the full handover** — architecture, every environment variable, the deploy pipeline, troubleshooting, cost, and the incident history behind several of the odder-looking decisions. Start there if you are taking this over.
+
 ---
 
 ## How it stays current
@@ -123,8 +125,8 @@ POS is excluded from all three tiles and shown only as a reference figure — bo
 ```bash
 npm install
 
-npm run check          # 29 unit checks — no credentials needed
-npm run smoke          # 27 end-to-end checks against the real handlers
+npm run check          # 55 unit checks — no credentials needed
+npm run smoke          # 32 end-to-end checks against the real handlers
 
 MOCK_DATA=1 npm run dev:local     # fixture data at localhost:8787
 npm run dev:local                 # real Shopify (needs .env)

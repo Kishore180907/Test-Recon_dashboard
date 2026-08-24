@@ -8,7 +8,8 @@
     "dev": "netlify dev",
     "check": "node scripts/selftest.js",
     "smoke": "node scripts/smoke.js",
-    "dev:local": "node scripts/dev-server.js"
+    "dev:local": "node scripts/dev-server.js",
+    "guide:capture": "node scripts/capture-guide.mjs"
   },
   "engines": {
     "node": ">=20"
