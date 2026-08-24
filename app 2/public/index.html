@@ -336,6 +336,7 @@
             <th data-sort="firstClick">First click</th>
             <th data-sort="lastClick">Last click</th>
             <th data-sort="trafficSource">Traffic source</th>
+            <th data-sort="convertedVia">Converted via</th>
             <th data-sort="channelName">Channel</th>
           </tr>
         </thead>
@@ -668,7 +669,7 @@ function renderTable() {
   let rows = b.orders;
   if (q) {
     rows = rows.filter((o) =>
-      [o.orderNumber, o.customerName, o.trafficSource, o.channelName, o.creditedTo,
+      [o.orderNumber, o.customerName, o.trafficSource, o.channelName, o.creditedTo, o.convertedVia,
        o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage]
         .filter(Boolean).join(' ').toLowerCase().includes(q));
   }
@@ -679,7 +680,7 @@ function renderTable() {
 
   const tb = $('#tbody');
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="8" class="empty">No orders match.</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="9" class="empty">No orders match.</td></tr>`;
     return;
   }
   tb.innerHTML = rows.map((o) => `
@@ -698,6 +699,7 @@ function renderTable() {
       <td><span class="chip">${esc(o.trafficSource)}</span>${o.touchpoints
         ? `<span class="sub">${o.touchpoints} touchpoint${o.touchpoints === 1 ? '' : 's'}${
             o.daysToConversion ? ` · ${o.daysToConversion}d to convert` : ''}</span>` : ''}</td>
+      <td>${esc(o.convertedVia || '—')}</td>
       <td>${esc(o.channelName || '—')}</td>
     </tr>`).join('');
 }
@@ -716,13 +718,13 @@ function exportCSV() {
   const b = state.data?.buckets[state.bucket];
   if (!b) return;
   const head = ['Order','Placed (ISO)','Placed (store time)','Customer','Net sale','Refunded','First click source','First click landing page',
-    'Last click source','Last click landing page','Traffic source','Touchpoints','Channel','Credited to'];
+    'Last click source','Last click landing page','Traffic source','Converted via','Touchpoints','Channel','Credited to'];
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.map(q).join(',')];
   for (const o of b.orders) {
     lines.push([o.orderNumber, o.createdAt, fmtDT(o.createdAt), o.customerName, o.netSale, o.refunded,
       o.firstClick?.source, o.firstClick?.landingPage, o.lastClick?.source, o.lastClick?.landingPage,
-      o.trafficSource, o.touchpoints, o.channelName, o.creditedTo].map(q).join(','));
+      o.trafficSource, o.convertedVia, o.touchpoints, o.channelName, o.creditedTo].map(q).join(','));
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
   const a = document.createElement('a');
