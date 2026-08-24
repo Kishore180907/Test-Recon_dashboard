@@ -14,12 +14,14 @@ import path from 'node:path';
 await fs.rm(path.join(process.cwd(), '.blobs'), { recursive: true, force: true });
 
 const { fetchOrdersPage } = await import('../lib/shopify.js');
+const { fetchCampaignInsights, campaignKey } = await import('../lib/meta.js');
 const {
   upsertOrders, readOrders, readPosTotals, monthsBetween,
+  upsertMetaInsights, readMetaInsights,
   setWatermark, getWatermark, acquireLock, releaseLock,
 } = await import('../lib/repo.js');
 const { buildPayload } = await import('../lib/payload.js');
-const { isPOS, isDraft, isAssisted } = await import('../lib/classify.js');
+const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf } = await import('../lib/classify.js');
 const { localDateOf } = await import('../lib/timezone.js');
 const auth = await import('../lib/auth.js');
 
@@ -50,13 +52,109 @@ const reread = await readOrders('2026-08-01', '2026-08-31');
 check('re-syncing the same orders does not duplicate non-POS orders',
   reread.length === new Set(reread.map((o) => o.id)).size);
 
+/* ---- multi-batch upsert: the backfill writes one page at a time ----------- */
+// Regression guard: a stale read during the read-modify-write on a month shard
+// silently drops everything the earlier pages added. Split the fixture into
+// batches and assert every order survives.
+{
+  await fs.rm(path.join(process.cwd(), '.blobs', 'orders'), { recursive: true, force: true });
+  const all = page.orders;
+  const size = Math.ceil(all.length / 4);
+  for (let i = 0; i < all.length; i += size) {
+    await upsertOrders(all.slice(i, i + size));
+  }
+  const stored = await readOrders('2026-01-01', '2026-12-31');
+  const expected = all.filter((o) => !o.test && !isPOS(o)).length;
+  check('every order survives a page-by-page backfill',
+    stored.length === expected, `${stored.length} stored vs ${expected} expected`);
+
+  const posAfter = await readPosTotals('2026-01-01', '2026-12-31');
+  const posExpected = all.filter((o) => !o.test && isPOS(o))
+    .reduce((sum, o) => sum + o.netPayment, 0);
+  check('POS day-totals survive a page-by-page backfill',
+    near(posAfter.revenue, posExpected), `${posAfter.revenue.toFixed(2)} vs ${posExpected.toFixed(2)}`);
+}
+
+/* ---- Meta Ads insights ---------------------------------------------------- */
+const adRows = await fetchCampaignInsights({ since: '2026-08-01', until: '2026-08-31' });
+await upsertMetaInsights(adRows);
+check('Meta insights load and store', adRows.length > 0, `${adRows.length} campaign-days`);
+
+{
+  const before = await readMetaInsights('2026-08-01', '2026-08-31');
+  await upsertMetaInsights(adRows);
+  const after = await readMetaInsights('2026-08-01', '2026-08-31');
+  const sum = (list) => list.reduce((s, r) => s + r.spend, 0);
+  // Meta revises recent days for ~72h, so every sync re-sends days already
+  // stored. Keyed by date+campaign, a re-sync must overwrite, never accumulate.
+  check('re-syncing the same Meta days overwrites instead of accumulating',
+    before.length === after.length && near(sum(before), sum(after)),
+    `${before.length}/${sum(before).toFixed(2)} vs ${after.length}/${sum(after).toFixed(2)}`);
+}
+
+check('Meta rows outside the range are filtered out',
+  (await readMetaInsights('2026-08-11', '2026-08-12')).every((r) => r.date >= '2026-08-11' && r.date <= '2026-08-12'));
+
+// The live account has campaign names with stray spaces the ad manager typed,
+// and Shopify hands the same name back URL-encoded. Both must land on one key.
+check('the join key survives spacing and encoding differences',
+  campaignKey('CLB_Sales_LV_ P9 _40_07/16') === campaignKey('CLB_Sales_LV_+P9+_40_07%2F16'));
+check('the join key matches the names seen identically on both sides',
+  campaignKey('CLB_Broad_Catalog_AJ_06/19') === 'clb-broad-catalog-aj-06-19');
+check('the join key keeps distinct campaigns distinct',
+  campaignKey('CLB_Broad_Catalog_AJ_06/19') !== campaignKey('CLB_Broad_Catalog_AJ_07/31'));
+
 /* ---- the payload ---------------------------------------------------------- */
 const range = { start: '2026-08-11', end: '2026-08-17' };
 const orders = await readOrders(range.start, range.end);
 const posTotals = await readPosTotals(range.start, range.end);
+const metaInsights = await readMetaInsights(range.start, range.end);
 
-const ex = buildPayload({ orders, posTotals, ...range, exclusive: true });
-const ov = buildPayload({ orders, posTotals, ...range, exclusive: false });
+const ex = buildPayload({ orders, posTotals, metaInsights, ...range, exclusive: true });
+const ov = buildPayload({ orders, posTotals, metaInsights, ...range, exclusive: false });
+
+/* ---- the Shopify/Meta join ------------------------------------------------ */
+{
+  const byKey = new Map(ex.campaigns.map((c) => [c.key, c]));
+
+  check('a campaign on both sides is marked matched',
+    byKey.get('clb-broad-catalog-aj-06-19')?.matched === true);
+
+  check('a campaign Shopify saw but Meta never billed is not matched',
+    byKey.get('clb-sale-signup-08-06')?.inShopify === true &&
+    byKey.get('clb-sale-signup-08-06')?.inMeta === false);
+
+  // The whole point of the join: Meta counts view-through and cross-device
+  // purchases that never carry a utm back to the storefront, so they surface as
+  // a campaign with Meta purchases and no Shopify orders.
+  const metaOnly = byKey.get('clb-broad-catalog-500-07-24');
+  check('a Meta-only campaign surfaces as an attribution gap',
+    metaOnly?.inMeta === true && metaOnly?.inShopify === false && metaOnly.metaPurchases > 0,
+    `gap ${metaOnly?.attributionGap}`);
+
+  check('campaign spend totals match the stored rows',
+    near(ex.ads.spend, metaInsights.reduce((s, r) => s + r.spend, 0)),
+    `${ex.ads.spend.toFixed(2)}`);
+
+  check('ROAS is purchase value over spend',
+    near(ex.ads.roas, ex.ads.purchaseValue / ex.ads.spend));
+
+  const allOrders = ['online', 'assisted', 'draft'].flatMap((k) => ex.buckets[k].orders);
+  const backed = allOrders.filter((o) => o.adBacked);
+  check('orders on a campaign Meta billed for are marked ad-backed',
+    backed.length > 0 && backed.every((o) => o.adSpend > 0), `${backed.length} orders`);
+  check('an order with no campaign is never marked ad-backed',
+    allOrders.filter((o) => !o.campaign).every((o) => !o.adBacked));
+}
+
+// Without Meta data the payload must still build — the ad columns just go empty.
+{
+  const bare = buildPayload({ orders, posTotals, ...range });
+  check('the payload builds with no Meta data at all',
+    bare.ads.campaigns === 0 && bare.campaigns.every((c) => !c.inMeta));
+  check('bucket totals are identical with and without Meta data',
+    near(bare.totals.nonPosRevenue, ex.totals.nonPosRevenue));
+}
 
 const b = ex.buckets;
 const sum = b.online.revenue + b.assisted.revenue + b.draft.revenue;
@@ -123,22 +221,65 @@ await releaseLock();
 check('the sync lock keeps two runs from overlapping', first && !second && third);
 
 /* ---- classification ------------------------------------------------------- */
+// The store's rule: a draft order keeps the Draft credit only when both
+// touchpoints are direct. A marketing-touched draft is credited to Assisted.
+const wantBucket = (o) => {
+  if (isDraft(o)) return isMarketingTouched(o) ? 'assisted' : 'draft';
+  return isAssisted(o) ? 'assisted' : 'online';
+};
+
 check('classifiers agree with the buckets', page.orders.every((o) => {
   if (isPOS(o)) return true;
-  const assisted = isAssisted(o);
-  const draft = isDraft(o);
-  const want = assisted ? 'assisted' : draft ? 'draft' : 'online';
   const found = ['online', 'assisted', 'draft'].find((k) =>
     b[k].orders.some((x) => x.id === o.id));
-  return !found || found === want;
+  return !found || found === wantBucket(o);
 }));
+
+check('a direct-only draft stays in Draft even with a credit note',
+  bucketOf({ sourceName: 'shopify_draft_order', note: 'Credit: Ruby',
+    firstClickSource: 'Direct', lastClickSource: 'Direct' }) === 'draft');
+
+check('a marketing-touched draft moves to Assisted',
+  bucketOf({ sourceName: 'shopify_draft_order', note: 'Credit: Ruby',
+    firstClickSource: 'Direct', lastClickSource: 'facebook / paid_social' }) === 'assisted');
+
+check('a draft touched by marketing on first click only moves to Assisted',
+  bucketOf({ sourceName: 'shopify_draft_order', note: '',
+    firstClickSource: 'Google', lastClickSource: 'Direct' }) === 'assisted');
+
+check('a draft with no journey data stays in Draft',
+  bucketOf({ sourceName: 'shopify_draft_order', note: '',
+    firstClickSource: 'No journey data', lastClickSource: 'No journey data' }) === 'draft');
+
+check('a non-draft order with a credit note is still Assisted',
+  bucketOf({ sourceName: 'web', note: 'Credit to Erik',
+    firstClickSource: 'Direct', lastClickSource: 'Direct' }) === 'assisted');
+
+check('a plain web order stays Online',
+  bucketOf({ sourceName: 'web', note: '',
+    firstClickSource: 'facebook / paid_social', lastClickSource: 'Direct' }) === 'online');
+
+check('the abbreviated "Cred:" note counts as a staff credit',
+  isAssisted({ note: 'Cred: Alex', tags: [] }));
+
+check('a draft order with a retail location is not treated as POS',
+  !isPOS({ sourceName: 'shopify_draft_order', appName: 'Draft Orders',
+    retailLocationName: 'Kenwood Towne Centre' }));
+
+check('a genuine POS order is still POS',
+  isPOS({ sourceName: 'pos', appName: 'Point of Sale', channelHandle: 'pos',
+    retailLocationName: 'Fairfield Commons' }));
 
 /* ---- auth ----------------------------------------------------------------- */
 process.env.DASHBOARD_PASSWORD = 'test-password';
 process.env.SESSION_SECRET = 'test-salt';
 const token = await auth.issueToken();
 check('a freshly issued session token verifies', await auth.verifyToken(token));
-check('a tampered token is rejected', !(await auth.verifyToken(token.replace(/.$/, '0'))));
+// Flip the final character to a guaranteed-different one. Replacing it with a
+// fixed '0' was a no-op whenever the signature already ended in '0', which made
+// this check pass or fail depending on the random token.
+const tampered = token.slice(0, -1) + (token.endsWith('0') ? '1' : '0');
+check('a tampered token is rejected', !(await auth.verifyToken(tampered)));
 check('a token signed under a different password is rejected', await (async () => {
   process.env.DASHBOARD_PASSWORD = 'a-different-password';
   const bad = await auth.verifyToken(token);

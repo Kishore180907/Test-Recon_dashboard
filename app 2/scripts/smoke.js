@@ -59,6 +59,20 @@ check('drill-down rows carry the attribution columns',
   b.online.orders.every((o) =>
     'orderNumber' in o && 'netSale' in o && 'firstClick' in o && 'lastClick' in o && 'trafficSource' in o));
 
+/* ---- 3b. the Meta Ads join over HTTP -------------------------------------- */
+check('the sync pulls Meta insights alongside orders',
+  payload.metaAds?.rowsInRange > 0, `${payload.metaAds?.rowsInRange} campaign-days`);
+check('the payload carries the campaign comparison',
+  Array.isArray(payload.campaigns) && payload.campaigns.length > 0,
+  `${payload.campaigns?.length} campaigns`);
+check('every compared campaign is present on at least one side',
+  payload.campaigns.every((c) => c.inMeta || c.inShopify));
+check('Meta totals reconcile with the per-campaign rows',
+  Math.abs(payload.ads.spend - payload.campaigns.reduce((s, c) => s + c.metaSpend, 0)) < 0.005,
+  `${payload.ads.spend.toFixed(2)}`);
+check('at least one campaign shows an attribution gap worth reasoning about',
+  payload.campaigns.some((c) => c.attributionGap > 0));
+
 /* ---- 4. validation -------------------------------------------------------- */
 check('bad dates are rejected', (await data(req('/api/data?start=nope&end=2026-08-17'))).status === 400);
 check('reversed ranges are rejected',
