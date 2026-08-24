@@ -526,7 +526,7 @@
         <p>Every online order your store took, sorted by <em>what actually made the sale
            happen</em>. Not where the money came from — who or what closed it.</p>
         <figure>
-          <img loading="lazy" src="/guide/buckets.png"
+          <img data-src="/guide/buckets.png"
                alt="Three tiles side by side: Online orders, Assisted orders and Draft orders, each showing revenue, order count and average order value." />
           <figcaption>The three tiles always add up to your total online revenue for the dates you picked.</figcaption>
         </figure>
@@ -563,7 +563,7 @@
       <section>
         <h3><span class="step">3</span> Choosing your dates</h3>
         <figure>
-          <img loading="lazy" src="/guide/range.png"
+          <img data-src="/guide/range.png"
                alt="The controls bar: Today, 7 days, 30 days, 90 days and MTD buttons, a From and to date picker with an Apply button, and Exclusive, Overlay, Pause, Refresh now and Light buttons." />
           <figcaption>Presets on the left, a custom range in the middle, display options on the right.</figcaption>
         </figure>
@@ -583,7 +583,7 @@
       <section>
         <h3><span class="step">4</span> The daily chart</h3>
         <figure>
-          <img loading="lazy" src="/guide/chart.png"
+          <img data-src="/guide/chart.png"
                alt="A stacked bar chart titled Daily revenue by bucket, with one bar per day split into Online, Assisted and Draft segments." />
           <figcaption>One bar per day, split by the same three colours as the tiles. Hover a bar for the exact figures.</figcaption>
         </figure>
@@ -596,7 +596,7 @@
         <h3><span class="step">5</span> Opening a tile to see the orders</h3>
         <p>Click any tile and the table below fills with the orders behind that number.</p>
         <figure>
-          <img loading="lazy" src="/guide/journey.png"
+          <img data-src="/guide/journey.png"
                alt="Order table showing columns for Order, Placed, Customer, Net sale, First click, Last click, Traffic source and Converted via. One row carries a violet ad spend chip." />
           <figcaption>The order number links straight to Shopify. Click any column heading to sort by it.</figcaption>
         </figure>
@@ -619,7 +619,7 @@
       <section>
         <h3><span class="step">6</span> Assisted orders, and who gets credit</h3>
         <figure>
-          <img loading="lazy" src="/guide/assisted.png"
+          <img data-src="/guide/assisted.png"
                alt="Assisted orders table with orange credit chips reading credit: Ruby and credit: JR under the order numbers, and Draft order in the Converted via column." />
           <figcaption>The orange chip is read from the order note in Shopify — “Credit: Ruby”, “Cred: JR”, and so on.</figcaption>
         </figure>
@@ -642,7 +642,7 @@
       <section>
         <h3><span class="step">7</span> What Meta says, next to what your store says</h3>
         <figure>
-          <img loading="lazy" src="/guide/campaigns.png"
+          <img data-src="/guide/campaigns.png"
                alt="Campaigns panel comparing Shopify last-click orders and net sale against Meta spend, purchases, value and ROAS, with a Gap column." />
           <figcaption>This panel only appears once Meta Ads is connected.</figcaption>
         </figure>
@@ -1175,7 +1175,24 @@ $('#theme').addEventListener('click', () => {
 /* ---------------- the guide ---------------- */
 /* Opened from beside the title. Polling carries on underneath — the guide is
  * something you read while the numbers behind it stay live. */
+/*
+ * The screenshots carry a src only from the first time the guide is opened, so
+ * the quarter-megabyte of PNG never lands on someone who just wants the numbers.
+ *
+ * This is done by hand rather than with loading="lazy", which does not work
+ * here: the images start life inside a display:none panel, and Chrome never
+ * re-evaluates them once it has decided they are not in any viewport. They sit
+ * at complete=false forever and the guide opens full of empty frames.
+ */
+function loadGuideImages() {
+  for (const img of $$('#guide img[data-src]')) {
+    img.src = img.dataset.src;
+    delete img.dataset.src;
+  }
+}
+
 function openGuide() {
+  loadGuideImages();
   $('#guide').hidden = false;
   $('#guide').classList.add('open');
   $('#guide-scrim').classList.add('open');
