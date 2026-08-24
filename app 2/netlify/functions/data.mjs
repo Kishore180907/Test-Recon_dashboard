@@ -1,7 +1,14 @@
 /* GET /api/data — reads storage only. Never calls Shopify, so it can't time out. */
 
-import { readOrders, readPosTotals, getWatermark, getBackfill } from '../../lib/repo.js';
+import {
+  readOrders,
+  readPosTotals,
+  readMetaInsights,
+  getWatermark,
+  getBackfill,
+} from '../../lib/repo.js';
 import { buildPayload } from '../../lib/payload.js';
+import { metaCredentialMode } from '../../lib/meta.js';
 import { todayLocal, daysAgoLocal, STORE_TZ } from '../../lib/timezone.js';
 import { COVERAGE_DAYS, coverageWindow } from '../../lib/sync.js';
 
@@ -33,9 +40,10 @@ export default async (req) => {
   }
 
   try {
-    const [orders, posTotals, watermark, backfill] = await Promise.all([
+    const [orders, posTotals, metaInsights, watermark, backfill] = await Promise.all([
       readOrders(start, end),
       readPosTotals(start, end),
+      readMetaInsights(start, end),
       getWatermark(),
       getBackfill(),
     ]);
@@ -53,6 +61,7 @@ export default async (req) => {
       buildPayload({
         orders,
         posTotals,
+        metaInsights,
         start,
         end,
         exclusive,
@@ -64,6 +73,11 @@ export default async (req) => {
           timezone: STORE_TZ,
           coverage: cover,
           backfill: backfill?.status || null,
+          metaAds: {
+            credentials: metaCredentialMode(),
+            rowsInRange: metaInsights.length,
+            lastSync: watermark?.meta || null,
+          },
         },
       })
     );

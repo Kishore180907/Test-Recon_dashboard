@@ -3,6 +3,7 @@
 import { getWatermark, getBackfill } from '../../lib/repo.js';
 import { coverageWindow, COVERAGE_DAYS } from '../../lib/sync.js';
 import { credentialMode } from '../../lib/token.js';
+import { metaCredentialMode } from '../../lib/meta.js';
 
 export default async () => {
   const [watermark, backfill] = await Promise.all([getWatermark(), getBackfill()]);
@@ -15,6 +16,10 @@ export default async () => {
       : null,
     backfill: backfill || { status: 'not-started' },
     credentials: credentialMode(),
+    metaAds: {
+      credentials: metaCredentialMode(),
+      lastSync: watermark?.meta || null,
+    },
     ready: Boolean(watermark) || backfill?.status === 'done',
   };
   return new Response(JSON.stringify(body), {

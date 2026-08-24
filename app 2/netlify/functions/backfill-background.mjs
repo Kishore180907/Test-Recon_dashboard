@@ -9,7 +9,7 @@
 import { fetchOrdersPage, buildBackfillQuery } from '../../lib/shopify.js';
 import { localDayToUTC } from '../../lib/timezone.js';
 import { upsertOrders, getBackfill, setBackfill, setWatermark } from '../../lib/repo.js';
-import { coverageWindow, COVERAGE_DAYS } from '../../lib/sync.js';
+import { coverageWindow, COVERAGE_DAYS, syncMetaAds } from '../../lib/sync.js';
 
 const TIME_BUDGET_MS = 12 * 60 * 1000; // leave slack inside the 15-minute cap
 const PAGE_SIZE = Number(process.env.BACKFILL_PAGE_SIZE) || 100;
@@ -84,6 +84,17 @@ export default async (req) => {
           startedAt: state?.startedAt || new Date().toISOString(),
           finishedAt: new Date().toISOString(),
         });
+        // Seed Meta over the same window while we are here. It is one request
+        // for the whole 90 days, and doing it now means the campaign comparison
+        // is populated the first time the dashboard loads rather than waiting
+        // for the next cron tick. Never throws — see syncMetaAds.
+        const meta = await syncMetaAds({ coverage: cover, seeded: false });
+        console.log(
+          meta.ok
+            ? `[backfill] meta · ${meta.rows} campaign-days · ${meta.campaigns} campaigns`
+            : `[backfill] meta skipped · ${meta.reason}${meta.error ? ` · ${meta.error}` : ''}`
+        );
+
         await setWatermark({
           lastSyncAt: Date.now(),
           lastSyncISO: new Date().toISOString(),
@@ -91,6 +102,7 @@ export default async (req) => {
           fetched: nonPos + pos,
           nonPos,
           pos,
+          meta,
           coverage: { ...cover, days: COVERAGE_DAYS },
         });
         console.log(`[backfill] done · ${pages} pages · ${nonPos} non-POS · ${pos} POS`);
