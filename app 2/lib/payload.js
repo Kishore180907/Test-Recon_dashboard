@@ -5,6 +5,7 @@
  * ========================================================================== */
 
 import { annotate } from './classify.js';
+import { campaignKey } from './meta.js';
 import { localDateOf } from './timezone.js';
 
 function emptyBucket() {
@@ -14,6 +15,7 @@ function emptyBucket() {
 export function buildPayload({
   orders,
   posTotals,
+  metaInsights = [],
   start,
   end,
   exclusive = true,
@@ -24,6 +26,10 @@ export function buildPayload({
     assisted: emptyBucket(),
     draft: emptyBucket(),
   };
+
+  // Campaigns Meta actually billed for in this window. Built before the order
+  // loop so every order can be stamped with whether its campaign is one of them.
+  const adSpendByKey = rollUpMeta(metaInsights);
 
   const all = [];
   for (const raw of orders) {
@@ -36,7 +42,7 @@ export function buildPayload({
     b.revenue += o.netPayment;
     b.refunded += o.refunded;
     b.orderCount += 1;
-    b.orders.push(slim(o));
+    b.orders.push(slim(o, adSpendByKey));
   }
 
   // Overlay view: assisted re-lists orders that also live in online/draft.
@@ -47,7 +53,7 @@ export function buildPayload({
       a.revenue += o.netPayment;
       a.refunded += o.refunded;
       a.orderCount += 1;
-      a.orders.push(slim(o));
+      a.orders.push(slim(o, adSpendByKey));
     }
     buckets.assisted = a;
   }
@@ -76,7 +82,123 @@ export function buildPayload({
     buckets: { ...buckets, pos: { ...emptyBucket(), ...posTotals, orderCount: posTotals.orders } },
     daily: dailySeries(all),
     sources: sourceBreakdown(all),
+    campaigns: campaignBreakdown(all, adSpendByKey),
+    ads: adTotals(adSpendByKey),
   };
+}
+
+/* =============================================================================
+ *  META ADS JOIN
+ * -----------------------------------------------------------------------------
+ *  Meta reports per campaign per day. Shopify reports per order, with the Meta
+ *  campaign name on the customer journey. So the only sound join is campaign to
+ *  campaign — see the header of lib/meta.js for why matching on purchase time
+ *  is not possible, however much it sounds like it should be.
+ * ========================================================================== */
+
+/** Collapse day rows into one entry per campaign. */
+function rollUpMeta(rows) {
+  const m = new Map();
+  for (const r of rows || []) {
+    const key = r.campaignKey || campaignKey(r.campaignName);
+    if (!key) continue;
+    if (!m.has(key)) {
+      m.set(key, {
+        key,
+        campaign: r.campaignName,
+        spend: 0, impressions: 0, clicks: 0, purchases: 0, purchaseValue: 0,
+      });
+    }
+    const row = m.get(key);
+    row.spend += r.spend || 0;
+    row.impressions += r.impressions || 0;
+    row.clicks += r.clicks || 0;
+    row.purchases += r.purchases || 0;
+    row.purchaseValue += r.purchaseValue || 0;
+  }
+  return m;
+}
+
+/** The campaign an order should be credited to: last touch first, then first. */
+function orderCampaign(o) {
+  return o.lastVisit?.utmCampaign || o.firstVisit?.utmCampaign || null;
+}
+
+/**
+ * Shopify last-click next to Meta's own claim, per campaign.
+ *
+ * The two columns are expected to disagree, and the disagreement is the point.
+ * Meta counts view-through and cross-device conversions that never carry a utm
+ * back to the storefront, so Shopify hands those to Direct. A campaign where
+ * Meta reports purchases and Shopify reports none is not a broken join — it is
+ * the case for treating a "Direct" order in that window as ad-influenced.
+ */
+function campaignBreakdown(all, adSpendByKey) {
+  const m = new Map();
+
+  const ensure = (key, name) => {
+    if (!m.has(key)) {
+      m.set(key, {
+        key,
+        campaign: name,
+        shopifyOrders: 0,
+        shopifyRevenue: 0,
+        metaSpend: 0,
+        metaClicks: 0,
+        metaImpressions: 0,
+        metaPurchases: 0,
+        metaValue: 0,
+        metaRoas: null,
+        inMeta: false,
+        inShopify: false,
+      });
+    }
+    return m.get(key);
+  };
+
+  for (const o of all) {
+    const name = orderCampaign(o);
+    if (!name) continue;
+    const row = ensure(campaignKey(name), name);
+    row.inShopify = true;
+    row.shopifyOrders += 1;
+    row.shopifyRevenue += o.netPayment;
+  }
+
+  for (const ad of adSpendByKey.values()) {
+    const row = ensure(ad.key, ad.campaign);
+    // Meta's spelling wins when both sides have the campaign: it is the name the
+    // ad manager will recognise, and Shopify's copy arrives URL-encoded.
+    row.campaign = ad.campaign;
+    row.inMeta = true;
+    row.metaSpend = ad.spend;
+    row.metaClicks = ad.clicks;
+    row.metaImpressions = ad.impressions;
+    row.metaPurchases = ad.purchases;
+    row.metaValue = ad.purchaseValue;
+    row.metaRoas = ad.spend > 0 ? ad.purchaseValue / ad.spend : null;
+  }
+
+  for (const row of m.values()) {
+    row.matched = row.inMeta && row.inShopify;
+    row.attributionGap = row.metaPurchases - row.shopifyOrders;
+  }
+
+  return [...m.values()].sort(
+    (a, b) => (b.metaSpend || 0) + b.shopifyRevenue - ((a.metaSpend || 0) + a.shopifyRevenue)
+  );
+}
+
+function adTotals(adSpendByKey) {
+  const t = { campaigns: 0, spend: 0, purchases: 0, purchaseValue: 0, roas: null };
+  for (const ad of adSpendByKey.values()) {
+    t.campaigns += 1;
+    t.spend += ad.spend;
+    t.purchases += ad.purchases;
+    t.purchaseValue += ad.purchaseValue;
+  }
+  t.roas = t.spend > 0 ? t.purchaseValue / t.spend : null;
+  return t;
 }
 
 /**
@@ -96,10 +218,18 @@ function convertedVia(o) {
   return channel || 'Unknown';
 }
 
-function slim(o) {
+function slim(o, adSpendByKey = new Map()) {
+  const campaign = orderCampaign(o);
+  const ad = campaign ? adSpendByKey.get(campaignKey(campaign)) : null;
+
   return {
     id: o.id,
     convertedVia: convertedVia(o),
+    campaign,
+    // True when Meta was actually billing for this campaign in the window —
+    // the difference between "the URL said facebook" and "money was spent".
+    adBacked: Boolean(ad && ad.spend > 0),
+    adSpend: ad ? ad.spend : null,
     orderNumber: o.orderNumber,
     adminUrl: o.adminUrl,
     createdAt: o.createdAt,

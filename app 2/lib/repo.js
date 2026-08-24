@@ -3,9 +3,14 @@
  *  -----------------------------------------------------------------------
  *  ORDERS store   m/<YYYY-MM>   -> { [orderId]: normalizedOrder }   (non-POS)
  *  ORDERS store   p/<YYYY-MM>   -> { [YYYY-MM-DD]: {revenue, orders} } (POS)
+ *  ADS store      a/<YYYY-MM>   -> { [YYYY-MM-DD|campaignId]: insightRow }
  *  META store     watermark     -> { lastSyncAt, lastSyncISO, orders }
  *  META store     backfill      -> { status, cursor, pages, seen, startedAt, ... }
  *  META store     lock          -> { at, by }
+ *
+ *  META here means "metadata", not Meta the advertiser — the ad data lives in
+ *  ADS. The names predate the integration and renaming the store would orphan
+ *  everything already written under it.
  *
  *  POS orders are 90%+ of volume and the dashboard only ever shows them as a
  *  single reference figure, so they are collapsed to per-day totals instead of
@@ -19,6 +24,7 @@ import { isPOS } from './classify.js';
 
 export const ORDERS = 'orders';
 export const META = 'meta';
+export const ADS = 'ads';
 
 const monthOf = (localDate) => localDate.slice(0, 7);
 
@@ -130,16 +136,61 @@ export async function readPosTotals(startDate, endDate) {
   return { revenue, orders };
 }
 
+/* ---- Meta Ads insights ---------------------------------------------------- */
+
+/**
+ * Merge campaign-by-day insight rows into the ad month shards.
+ *
+ * Keyed by date + campaign id, so re-syncing a day overwrites its rows rather
+ * than adding to them. That matters more here than for orders: Meta revises
+ * recent days for up to 72 hours as attribution settles, and every sync is
+ * expected to bring back changed numbers for days already stored.
+ */
+export async function upsertMetaInsights(rows) {
+  const byMonth = new Map();
+  for (const r of rows) {
+    if (!r?.date) continue;
+    const month = monthOf(r.date);
+    if (!byMonth.has(month)) byMonth.set(month, []);
+    byMonth.get(month).push(r);
+  }
+
+  const touched = [];
+  for (const [month, list] of byMonth) {
+    const key = `a/${month}`;
+    const existing = (await getJSON(ADS, key, { strong: true })) || {};
+    for (const r of list) existing[`${r.date}|${r.campaignId || r.campaignKey}`] = r;
+    await setJSON(ADS, key, existing);
+    touched.push(month);
+  }
+  return { months: touched, rows: rows.length };
+}
+
+/** Every insight row whose day falls inside [start, end]. */
+export async function readMetaInsights(startDate, endDate) {
+  const out = [];
+  for (const month of monthsBetween(startDate, endDate)) {
+    const shard = await getJSON(ADS, `a/${month}`);
+    if (!shard) continue;
+    for (const r of Object.values(shard)) {
+      if (r.date >= startDate && r.date <= endDate) out.push(r);
+    }
+  }
+  return out;
+}
+
 /** Drop shards that have fallen entirely outside the coverage window. */
 export async function pruneBefore(oldestDate) {
   const cutoff = oldestDate.slice(0, 7);
-  const keys = await listKeys(ORDERS);
   const dropped = [];
-  for (const k of keys) {
-    const m = k.match(/^[mp]\/(\d{4}-\d{2})$/);
-    if (m && m[1] < cutoff) {
-      await del(ORDERS, k);
-      dropped.push(k);
+
+  for (const [store, pattern] of [[ORDERS, /^[mp]\/(\d{4}-\d{2})$/], [ADS, /^a\/(\d{4}-\d{2})$/]]) {
+    for (const k of await listKeys(store)) {
+      const m = k.match(pattern);
+      if (m && m[1] < cutoff) {
+        await del(store, k);
+        dropped.push(`${store}:${k}`);
+      }
     }
   }
   return dropped;

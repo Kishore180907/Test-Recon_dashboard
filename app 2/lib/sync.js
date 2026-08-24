@@ -4,9 +4,11 @@
  * ========================================================================== */
 
 import { fetchOrdersInRange } from './shopify.js';
+import { fetchCampaignInsights, metaConfigured, metaCredentialMode } from './meta.js';
 import { localDayToUTC, todayLocal, daysAgoLocal } from './timezone.js';
 import {
   upsertOrders,
+  upsertMetaInsights,
   pruneBefore,
   getWatermark,
   setWatermark,
@@ -21,8 +23,54 @@ export const COVERAGE_DAYS = Number(process.env.COVERAGE_DAYS) || 90;
 /** Re-fetch slightly before the last sync so nothing slips through the gap. */
 const OVERLAP_MS = 5 * 60 * 1000;
 
+/**
+ * How far back to re-pull Meta on a routine tick.
+ *
+ * Meta keeps revising a day's numbers for roughly three days after it closes as
+ * attribution settles, so re-reading only "today" would leave the dashboard
+ * showing figures Ads Manager has since corrected. A week of trailing days
+ * covers that with room to spare and is still one small request.
+ */
+const META_REFRESH_DAYS = Number(process.env.META_REFRESH_DAYS) || 7;
+
 export function coverageWindow() {
   return { start: daysAgoLocal(COVERAGE_DAYS - 1), end: todayLocal() };
+}
+
+/**
+ * Refresh Meta campaign insights.
+ *
+ * Deliberately never throws. Meta is supplementary evidence — if the token has
+ * lapsed or the Graph API is having a bad afternoon, the order dashboard must
+ * still render. The failure is recorded in the watermark so /api/status can say
+ * so out loud rather than leaving stale ad numbers looking current.
+ */
+export async function syncMetaAds({ coverage, seeded = false } = {}) {
+  // MOCK_DATA serves the bundled fixture, which needs no credentials — that is
+  // what lets `npm run smoke` and the local dev server exercise the whole join.
+  if (!metaConfigured() && process.env.MOCK_DATA !== '1') {
+    return { ok: false, reason: metaCredentialMode() === 'partial' ? 'partial-credentials' : 'not-configured' };
+  }
+
+  // First run seeds the whole coverage window; after that only the tail moves.
+  const since = seeded ? daysAgoLocal(META_REFRESH_DAYS - 1) : coverage.start;
+  const until = coverage.end;
+
+  try {
+    const rows = await fetchCampaignInsights({ since, until });
+    const { months } = await upsertMetaInsights(rows);
+    return {
+      ok: true,
+      since,
+      until,
+      rows: rows.length,
+      campaigns: new Set(rows.map((r) => r.campaignKey)).size,
+      months,
+      seededAt: seeded ? undefined : new Date().toISOString(),
+    };
+  } catch (err) {
+    return { ok: false, reason: 'error', error: String(err.message || err), since, until };
+  }
 }
 
 /**
@@ -56,6 +104,15 @@ export async function runSync({ by = 'cron', maxPages = 40 } = {}) {
     });
 
     const { months, nonPos, pos } = await upsertOrders(fetched);
+
+    const meta = await syncMetaAds({
+      coverage: { start, end },
+      seeded: Boolean(wm?.meta?.seededAt),
+    });
+    // Carry the seed stamp forward: it marks that the full window has been
+    // pulled once, which is what lets later ticks fetch only the tail.
+    if (meta.ok && !meta.seededAt) meta.seededAt = wm?.meta?.seededAt;
+
     const dropped = await pruneBefore(start);
 
     const watermark = {
@@ -66,6 +123,7 @@ export async function runSync({ by = 'cron', maxPages = 40 } = {}) {
       nonPos,
       pos,
       months,
+      meta,
       coverage: { start, end, days: COVERAGE_DAYS },
       durationMs: Date.now() - startedAt,
     };
