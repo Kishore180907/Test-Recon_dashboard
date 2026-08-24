@@ -79,9 +79,27 @@ export function buildPayload({
   };
 }
 
+/**
+ * How the sale actually closed — the mechanism, not the marketing source.
+ * The other columns already say where the customer came from; this says what
+ * they paid through, which is the part that distinguishes a staff-sent invoice
+ * from a self-serve checkout.
+ */
+function convertedVia(o) {
+  const landings = `${o.firstVisit?.landingPage || ''} ${o.lastVisit?.landingPage || ''}`;
+  if (/\/checkouts\/do\//i.test(landings)) return 'Draft invoice link';
+  if (o.isDraft) return 'Draft order';
+
+  const channel = (o.channelName || o.appName || o.sourceName || '').trim();
+  if (/^shop$/i.test(channel)) return 'Shop app';
+  if (/online store/i.test(channel)) return 'Storefront checkout';
+  return channel || 'Unknown';
+}
+
 function slim(o) {
   return {
     id: o.id,
+    convertedVia: convertedVia(o),
     orderNumber: o.orderNumber,
     adminUrl: o.adminUrl,
     createdAt: o.createdAt,
