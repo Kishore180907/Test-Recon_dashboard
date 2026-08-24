@@ -22,6 +22,10 @@
     --series-assisted: #d95926;
     --series-draft:    #199e70;
 
+    /* Meta's own column. Deliberately not the Online blue — these numbers come
+       from a different system and should never be mistaken for store data. */
+    --meta: #9a7bf2;
+
     --good: #0ca30c;
     --warning: #fab219;
     --critical: #d03b3b;
@@ -41,6 +45,7 @@
     --series-online:   #2a78d6;
     --series-assisted: #eb6834;
     --series-draft:    #1baf7a;
+    --meta:            #6b4bd0;
   }
 
   * { box-sizing: border-box; }
@@ -226,8 +231,27 @@
   }
   .chip.credit { border-color: var(--series-assisted); color: var(--series-assisted); }
   .chip.cancelled { border-color: var(--critical); color: var(--critical); }
+  .chip.ad { border-color: var(--meta); color: var(--meta); }
   .empty { padding: 34px; text-align: center; color: var(--text-muted); font-size: 13px; }
   .skeleton { color: var(--text-muted); font-size: 13px; padding: 30px; text-align: center; }
+
+  /* ---------- Meta Ads comparison ---------- */
+  .camp-note { font-size: 11.5px; color: var(--text-muted); margin: 2px 0 12px; max-width: 74ch; }
+  #camp-tbl th.grp {
+    text-align: center; font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--text-muted); border-bottom: 1px solid var(--grid); padding-bottom: 5px;
+  }
+  #camp-tbl th.grp.meta { color: var(--meta); }
+  #camp-tbl td.name { max-width: 320px; }
+  #camp-tbl td.name .sub { max-width: 320px; }
+  #camp-tbl .gap-pos { color: var(--meta); font-weight: 620; }
+  #camp-tbl .gap-neg { color: var(--text-muted); }
+  #camp-tbl td.dim { color: var(--text-muted); }
+  .ads-strip {
+    display: flex; gap: 22px; flex-wrap: wrap; align-items: baseline;
+    font-size: 12px; color: var(--text-muted); margin-bottom: 10px;
+  }
+  .ads-strip b { color: var(--text-primary); font-weight: 620; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -315,6 +339,46 @@
       </div>
     </div>
     <svg id="chart" role="img" aria-label="Daily revenue by bucket"></svg>
+  </div>
+
+  <div class="card" id="camp-card" hidden>
+    <div class="card-head">
+      <div class="card-title">Campaigns — Shopify last click vs Meta</div>
+      <div class="legend">
+        <span><i style="background:var(--meta)"></i>Meta Ads</span>
+      </div>
+    </div>
+    <p class="camp-note">
+      Joined on campaign name. Meta reports per campaign per day, never per order,
+      so there is no purchase timestamp to match against — the campaign is the join.
+      The two sides are expected to disagree: Meta counts view-through and
+      cross-device purchases that reach the storefront with no campaign attached,
+      which Shopify then credits to Direct. A positive gap is that shortfall.
+    </p>
+    <div class="ads-strip" id="ads-strip"></div>
+    <div class="tbl-scroll">
+      <table id="camp-tbl">
+        <thead>
+          <tr>
+            <th></th>
+            <th class="grp" colspan="2">Shopify last click</th>
+            <th class="grp meta" colspan="4">Meta</th>
+            <th></th>
+          </tr>
+          <tr>
+            <th>Campaign</th>
+            <th class="num">Orders</th>
+            <th class="num">Net sale</th>
+            <th class="num">Spend</th>
+            <th class="num">Purchases</th>
+            <th class="num">Value</th>
+            <th class="num">ROAS</th>
+            <th class="num">Gap</th>
+          </tr>
+        </thead>
+        <tbody id="camp-body"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card">
@@ -552,7 +616,60 @@ function render() {
   }
 
   drawChart(d.daily);
+  renderCampaigns();
   renderTable();
+}
+
+/* ---------------- campaigns: Shopify vs Meta ---------------- */
+function renderCampaigns() {
+  const d = state.data;
+  const card = $('#camp-card');
+  const rows = d?.campaigns || [];
+
+  // The card only earns its space once Meta is actually wired up. Without a
+  // token every row would be Shopify-only, which is what the order table
+  // already says.
+  const hasMeta = (d?.ads?.campaigns || 0) > 0;
+  card.hidden = !hasMeta || !rows.length;
+  if (card.hidden) return;
+
+  const a = d.ads;
+  $('#ads-strip').innerHTML = [
+    `<span>Meta spend <b>${money2(a.spend)}</b></span>`,
+    `<span>Meta purchases <b>${int(a.purchases)}</b></span>`,
+    `<span>Meta value <b>${money2(a.purchaseValue)}</b></span>`,
+    `<span>Blended ROAS <b>${a.roas ? `${a.roas.toFixed(2)}×` : '—'}</b></span>`,
+    `<span>Campaigns billed <b>${int(a.campaigns)}</b></span>`,
+  ].join('');
+
+  $('#camp-body').innerHTML = rows.map((c) => {
+    const gap = c.attributionGap;
+    const gapCell = !c.inMeta
+      ? '<span class="gap-neg">—</span>'
+      : gap > 0
+        ? `<span class="gap-pos">+${int(gap)}</span>`
+        : `<span class="gap-neg">${int(gap)}</span>`;
+
+    const note = !c.inMeta
+      ? 'no Meta spend in range'
+      : !c.inShopify
+        ? 'no Shopify order carries this campaign'
+        : gap > 0
+          ? `Meta claims ${int(gap)} more than last click`
+          : '';
+
+    return `
+      <tr>
+        <td class="name">${esc(c.campaign)}${note ? `<span class="sub" title="${esc(note)}">${esc(note)}</span>` : ''}</td>
+        <td class="num${c.inShopify ? '' : ' dim'}">${c.inShopify ? int(c.shopifyOrders) : '—'}</td>
+        <td class="num${c.inShopify ? '' : ' dim'}">${c.inShopify ? money2(c.shopifyRevenue) : '—'}</td>
+        <td class="num${c.inMeta ? '' : ' dim'}">${c.inMeta ? money2(c.metaSpend) : '—'}</td>
+        <td class="num${c.inMeta ? '' : ' dim'}">${c.inMeta ? int(c.metaPurchases) : '—'}</td>
+        <td class="num${c.inMeta ? '' : ' dim'}">${c.inMeta ? money2(c.metaValue) : '—'}</td>
+        <td class="num${c.inMeta ? '' : ' dim'}">${c.metaRoas ? `${c.metaRoas.toFixed(2)}×` : '—'}</td>
+        <td class="num">${gapCell}</td>
+      </tr>`;
+  }).join('');
 }
 
 /* ---------------- stacked bar chart ---------------- */
@@ -670,7 +787,7 @@ function renderTable() {
   if (q) {
     rows = rows.filter((o) =>
       [o.orderNumber, o.customerName, o.trafficSource, o.channelName, o.creditedTo, o.convertedVia,
-       o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage]
+       o.campaign, o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage]
         .filter(Boolean).join(' ').toLowerCase().includes(q));
   }
   rows = [...rows].sort((a, z) => {
@@ -696,7 +813,8 @@ function renderTable() {
         ? `<span class="sub">−${money2(o.refunded, o.currency)} refunded</span>` : ''}</td>
       <td>${clickCell(o.firstClick)}</td>
       <td>${clickCell(o.lastClick)}</td>
-      <td><span class="chip">${esc(o.trafficSource)}</span>${o.touchpoints
+      <td><span class="chip">${esc(o.trafficSource)}</span>${o.adBacked
+        ? ` <span class="chip ad" title="Meta was billing for ${esc(o.campaign)} during this range — ${money2(o.adSpend)} spent">ad spend</span>` : ''}${o.touchpoints
         ? `<span class="sub">${o.touchpoints} touchpoint${o.touchpoints === 1 ? '' : 's'}${
             o.daysToConversion ? ` · ${o.daysToConversion}d to convert` : ''}</span>` : ''}</td>
       <td>${esc(o.convertedVia || '—')}</td>
@@ -718,13 +836,14 @@ function exportCSV() {
   const b = state.data?.buckets[state.bucket];
   if (!b) return;
   const head = ['Order','Placed (ISO)','Placed (store time)','Customer','Net sale','Refunded','First click source','First click landing page',
-    'Last click source','Last click landing page','Traffic source','Converted via','Touchpoints','Channel','Credited to'];
+    'Last click source','Last click landing page','Traffic source','Converted via','Campaign','Meta ad spend in range','Touchpoints','Channel','Credited to'];
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.map(q).join(',')];
   for (const o of b.orders) {
     lines.push([o.orderNumber, o.createdAt, fmtDT(o.createdAt), o.customerName, o.netSale, o.refunded,
       o.firstClick?.source, o.firstClick?.landingPage, o.lastClick?.source, o.lastClick?.landingPage,
-      o.trafficSource, o.convertedVia, o.touchpoints, o.channelName, o.creditedTo].map(q).join(','));
+      o.trafficSource, o.convertedVia, o.campaign, o.adBacked ? o.adSpend : '',
+      o.touchpoints, o.channelName, o.creditedTo].map(q).join(','));
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
   const a = document.createElement('a');
