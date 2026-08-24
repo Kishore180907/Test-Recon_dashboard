@@ -1,6 +1,13 @@
 [build]
   publish = "public"
   command = "echo 'static site — functions build themselves'"
+  # Always build. Netlify's "skip when nothing changed in the base directory"
+  # check ran `git diff` against a base directory whose name contains a space,
+  # matched nothing, and cancelled every push for two days — the site quietly
+  # kept serving an old commit while GitHub showed the fixes as merged.
+  # Exiting non-zero tells Netlify never to skip. Builds here are a two-second
+  # echo, so there is nothing to save by skipping them.
+  ignore = "/bin/false"
 
 [functions]
   node_bundler = "esbuild"
