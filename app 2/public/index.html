@@ -301,6 +301,10 @@
   .jstep.marketing::before { border-color: var(--series-assisted); }
   .jstep.invoice::before { border-color: var(--series-draft); }
   .jstep.purchase::before { border-color: var(--series-online); background: var(--series-online); }
+  /* Hollow and dashed: this one is not part of the journey, it is the line the
+     journey starts from. */
+  .jstep.previous::before { border-style: dashed; border-color: var(--text-muted); }
+  .jstep.previous { opacity: .82; }
 
   .jstep-when { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
   .jstep-what { font-size: 13px; font-weight: 600; margin-top: 1px; }
@@ -796,6 +800,27 @@ const fmtDT = (iso) =>
     { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
 const fmtDay = (d) =>
   new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+/* A previous order can be years old, and "Jun 18" with no year reads as this
+ * June. The year appears whenever it is not the current one. Takes a full
+ * timestamp, unlike fmtDay, which takes a YYYY-MM-DD day string. */
+const fmtDate = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const opts = { timeZone: TZ, year: 'numeric' };
+  const sameYear = d.toLocaleDateString('en-US', opts) ===
+                   new Date().toLocaleDateString('en-US', opts);
+  return d.toLocaleDateString('en-US',
+    { timeZone: TZ, month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+};
+/* 1st, 2nd, 3rd, 4th… including the 11th/12th/13th exceptions. */
+const ordinal = (n) => {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '';
+  const rem100 = v % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${v}th`;
+  return `${v}${['th', 'st', 'nd', 'rd'][v % 10] || 'th'}`;
+};
+
 const shortUrl = (u) => {
   if (!u) return '';
   try { const x = new URL(u); return x.hostname.replace(/^www\./, '') + (x.pathname === '/' ? '' : x.pathname); }
@@ -1156,7 +1181,8 @@ function renderTable() {
         ${o.cancelled ? `<span class="sub"><span class="chip cancelled">cancelled</span></span>` : ''}
       </td>
       <td>${fmtDT(o.createdAt)}</td>
-      <td>${esc(o.customerName || '—')}</td>
+      <td>${esc(o.customerName || '—')}${o.orderIndex
+        ? `<span class="sub">${o.orderIndex === 1 ? 'first order' : `${ordinal(o.orderIndex)} order`}</span>` : ''}</td>
       <td class="num">${money2(o.netSale, o.currency)}${o.refunded > 0
         ? `<span class="sub">−${money2(o.refunded, o.currency)} refunded</span>` : ''}</td>
       <td>${clickCell(o.firstClick)}</td>
@@ -1311,7 +1337,11 @@ function closeJourney() {
 
 function renderJourney(j) {
   const s = j.summary;
+  const c = j.customer || {};
   $('#j-sub').textContent = [
+    c.name || null,
+    c.orders ? (c.orders === 1 ? 'first order' : `${c.orders} orders`) : null,
+    c.spend ? `${money2(c.spend)} lifetime` : null,
     `${s.sessions} session${s.sessions === 1 ? '' : 's'}`,
     s.steps !== s.sessions ? `${s.steps} step${s.steps === 1 ? '' : 's'}` : null,
     s.spanDays != null ? `over ${s.spanDays} day${s.spanDays === 1 ? '' : 's'}` : null,
@@ -1331,6 +1361,13 @@ function renderJourney(j) {
     notes.push(`<div class="jnote">One session. Nothing here that the first and last click
       columns do not already show.</div>`);
   }
+  /* Six months is the line: past that, a returning buyer is a re-acquisition
+   * rather than a regular, and what pulled them back is worth knowing. */
+  if (c.dormantDays != null && c.dormantDays >= 180) {
+    notes.push(`<div class="jnote flag"><b>Returning after
+      ${Math.round(c.dormantDays / 30)} months.</b> Their previous order was
+      ${esc(c.previousOrder?.orderNumber || '')} on ${esc(fmtDate(c.previousOrder?.createdAt))}.</div>`);
+  }
   if (s.campaigns.length) {
     notes.push(`<div class="jnote">Campaigns touched: <b>${s.campaigns.map(esc).join('</b>, <b>')}</b></div>`);
   }
@@ -1346,12 +1383,16 @@ function stepHTML(st) {
     !st.paid && st.marketing ? 'marketing' : '',
   ].filter(Boolean).join(' ');
 
-  const when = st.count > 1
-    ? `${fmtDT(st.from)} – ${fmtDT(st.to)}`
-    : fmtDT(st.from);
+  const when = st.kind === 'previous'
+    ? fmtDate(st.from)
+    : st.count > 1
+      ? `${fmtDT(st.from)} – ${fmtDT(st.to)}`
+      : fmtDT(st.from);
 
   let what;
-  if (st.kind === 'purchase') {
+  if (st.kind === 'previous') {
+    what = `Previous order ${esc(st.orderNumber)} · ${money2(st.amount ?? 0, st.currency)}`;
+  } else if (st.kind === 'purchase') {
     what = `Purchased ${money2(st.amount ?? 0, st.currency)}`;
   } else if (st.kind === 'invoice') {
     what = 'Opened the draft invoice';
@@ -1360,6 +1401,12 @@ function stepHTML(st) {
   }
 
   const meta = [];
+  if (st.kind === 'previous') {
+    meta.push(st.gapDays != null
+      ? `${st.gapDays} days before this journey began`
+      : 'the journey below starts from here');
+    if (st.adminUrl) meta.push(`<a href="${esc(st.adminUrl)}" target="_blank" rel="noopener">open in Shopify</a>`);
+  }
   if (st.kind === 'purchase' && st.creditedTo) {
     meta.push(`credited to ${esc(st.creditedTo)} <span class="jrepeat">(from the order note, not timestamped)</span>`);
   }
