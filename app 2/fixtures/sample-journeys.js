@@ -43,6 +43,18 @@ export const SAMPLE_JOURNEYS = {
     ready: true,
     touchpoints: 9,
     daysToConversion: 29,
+    customerName: 'Enzo Commeau',
+    customerOrders: 4,
+    customerSpend: 50270,
+    /* Modelled on live order #27790: a high-value customer dormant for over a
+     * year, back after a paid click. The order count alone would not show that. */
+    previousOrder: {
+      orderNumber: '#16008',
+      createdAt: '2025-06-18T20:23:27Z',
+      netPayment: 16500,
+      currency: 'USD',
+      adminUrl: 'https://admin.shopify.com/store/clb-xxiii/orders/16008',
+    },
     moments: [
       M(['2026-07-13T15:26:16Z', HOME, null, 'direct', '1st session was direct to your store']),
       M(['2026-07-13T18:02:44Z', HOME, null, 'direct', null]),
@@ -69,6 +81,16 @@ export const SAMPLE_JOURNEYS = {
     ready: true,
     touchpoints: 13,
     daysToConversion: 2,
+    customerName: 'Marques Aiken',
+    customerOrders: 2,
+    customerSpend: 352.72,
+    previousOrder: {
+      orderNumber: '#27102',
+      createdAt: '2026-08-02T14:10:00Z',
+      netPayment: 306.36,
+      currency: 'USD',
+      adminUrl: 'https://admin.shopify.com/store/clb-xxiii/orders/27102',
+    },
     moments: [
       ...['02:25:20', '02:26:05', '02:27:08', '02:28:22', '02:29:09', '02:29:29'].map((t) =>
         M([`2026-08-13T${t}Z`, SHORTS, 'https://instagram.com/', 'Instagram', null,
@@ -118,6 +140,10 @@ export const SAMPLE_JOURNEYS = {
     ready: true,
     touchpoints: 6,
     daysToConversion: 1,
+    customerName: 'Fresca Kiley',
+    customerOrders: 1,
+    customerSpend: 0,
+    previousOrder: null,
     moments: [
       M(['2026-08-10T15:29:47Z', HOME, null, 'direct', '1st session was direct to your store']),
     ],

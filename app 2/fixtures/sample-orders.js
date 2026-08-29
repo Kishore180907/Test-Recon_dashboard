@@ -21,6 +21,13 @@ const V = (a) =>
       }
     : null;
 
+/** Stable pseudo-history: 1 to 5 orders, derived from the customer name. */
+const CUSTOMER_ORDERS = (name) => {
+  let h = 0;
+  for (const ch of String(name || '')) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return (h % 5) + 1;
+};
+
 const rows = [
   ['#27003','2026-08-11T04:17:45Z','web','Online Store','VOIDED','Anais Garcia',0,33,0,0,0,null,1,1,
     ['2026-08-11T04:12:39Z','https://www.clb23.com/checkouts/cn/hWNFWBoaPNf1NO4g3uVgLutu/en-do',null,'direct','1st session was direct to your store'],
@@ -148,7 +155,14 @@ export const SAMPLE_ORDERS = rows.map((r, i) => {
     retailLocation: src === 'pos' ? { name: 'Kenwood Towne Centre' } : null,
     physicalLocation: src === 'pos' ? { name: 'Kenwood Towne Centre' } : null,
     displayFinancialStatus: status,
-    customer: { displayName: customer },
+    /* Repeat customers, so the offline preview exercises the ordinal sub-line
+     * rather than showing "first order" on every row. Deterministic from the
+     * name so a given customer keeps the same history across runs. */
+    customer: {
+      displayName: customer,
+      numberOfOrders: String(CUSTOMER_ORDERS(customer)),
+      amountSpent: { amount: String(CUSTOMER_ORDERS(customer) * 480), currencyCode: 'USD' },
+    },
     netPaymentSet: { shopMoney: { amount: String(net), currencyCode: 'USD' } },
     totalPriceSet: { shopMoney: { amount: String(total) } },
     currentSubtotalPriceSet: { shopMoney: { amount: String(sub) } },
@@ -157,7 +171,7 @@ export const SAMPLE_ORDERS = rows.map((r, i) => {
     customerJourneySummary: {
       ready: true,
       momentsCount: { count: moments, precision: 'EXACT' },
-      customerOrderIndex: 1,
+      customerOrderIndex: CUSTOMER_ORDERS(customer),
       daysToConversion: days,
       firstVisit: V(first),
       lastVisit: V(last),
