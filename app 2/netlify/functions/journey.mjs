@@ -38,6 +38,10 @@ export default async (req) => {
       netPayment: raw.netPayment,
       currency: raw.currency,
       creditedTo: creditedTo({ note: raw.note }),
+      customerName: raw.customerName,
+      customerOrders: raw.customerOrders,
+      customerSpend: raw.customerSpend,
+      previousOrder: raw.previousOrder,
     });
 
     return json(200, {
