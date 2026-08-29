@@ -108,6 +108,33 @@ export function buildJourney(moments, order = {}) {
     .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
 
   const steps = [];
+
+  /* The previous order opens the timeline, and not just as trivia: Shopify
+   * defines the journey's first session as "the first session since the last
+   * order". The previous order is literally where this timeline starts, so
+   * anchoring it there explains why the first visit is when it is — and it
+   * reframes the order. A draft with 23 direct sessions reads very differently
+   * once you know the same customer spent $16,500 fourteen months ago. */
+  if (order.previousOrder?.createdAt) {
+    const prev = order.previousOrder;
+    steps.push({
+      signature: 'previous',
+      kind: 'previous',
+      label: `Previous order ${prev.orderNumber}`,
+      from: prev.createdAt,
+      to: prev.createdAt,
+      count: 1,
+      paid: false,
+      marketing: false,
+      amount: prev.netPayment ?? null,
+      currency: prev.currency || 'USD',
+      orderNumber: prev.orderNumber,
+      adminUrl: prev.adminUrl || null,
+      gapDays: sorted.length
+        ? Math.round((new Date(sorted[0].occurredAt) - new Date(prev.createdAt)) / 86400000)
+        : null,
+    });
+  }
   for (const m of sorted) {
     const sig = signature(m);
     const prev = steps[steps.length - 1];
@@ -156,12 +183,23 @@ export function buildJourney(moments, order = {}) {
 
   for (const s of steps) delete s.signature;
 
-  const visits = steps.filter((s) => s.kind !== 'purchase');
+  const visits = steps.filter((s) => s.kind !== 'purchase' && s.kind !== 'previous');
   const firstAt = visits[0]?.from || null;
   const lastAt = visits[visits.length - 1]?.to || null;
 
   return {
     steps,
+    customer: {
+      name: order.customerName || null,
+      orders: order.customerOrders ?? null,
+      spend: order.customerSpend ?? null,
+      orderIndex: order.orderIndex ?? null,
+      previousOrder: order.previousOrder || null,
+      /* Someone who bought before and then went quiet for a long stretch is a
+       * different customer from a steady repeat buyer, and the difference is
+       * invisible in an order count. */
+      dormantDays: steps.find((x) => x.kind === 'previous')?.gapDays ?? null,
+    },
     summary: {
       // What the endpoint columns cannot tell you, stated plainly.
       sessions: sorted.length,

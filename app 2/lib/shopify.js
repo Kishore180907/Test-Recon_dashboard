@@ -98,7 +98,11 @@ const ORDER_FIELDS = `
   retailLocation { name }
   physicalLocation { name }
   displayFinancialStatus
-  customer { displayName }
+  customer {
+    displayName
+    numberOfOrders
+    amountSpent { amount currencyCode }
+  }
   netPaymentSet { shopMoney { amount currencyCode } }
   totalPriceSet { shopMoney { amount } }
   currentSubtotalPriceSet { shopMoney { amount } }
@@ -215,6 +219,15 @@ function normalize(n) {
     retailLocationName: n.retailLocation?.name || n.physicalLocation?.name || '',
     financialStatus: n.displayFinancialStatus || '',
     customerName: n.customer?.displayName || '',
+    /* Repeat-customer signal. customerOrderIndex was already being fetched and
+     * thrown away; numberOfOrders and amountSpent are scalars hanging off a
+     * customer object the query already traverses, so all three are free. The
+     * previous order itself is NOT here: that needs a nested orders connection,
+     * which is exactly the per-page cost the journey fetch avoids. It is loaded
+     * on demand instead, in fetchOrderJourney. */
+    customerOrders: Number(n.customer?.numberOfOrders) || null,
+    customerSpend: num(n.customer?.amountSpent?.amount),
+    orderIndex: j.customerOrderIndex ?? null,
     currency: n.netPaymentSet?.shopMoney?.currencyCode || 'USD',
 
     netPayment: num(n.netPaymentSet?.shopMoney?.amount),
@@ -324,6 +337,22 @@ const JOURNEY_QUERY = `
       createdAt
       note
       netPaymentSet { shopMoney { amount currencyCode } }
+      customer {
+        displayName
+        numberOfOrders
+        amountSpent { amount currencyCode }
+        /* Two, not one: customer.lastOrder returns THIS order for anything
+         * recent, so it can never answer "what did they buy before?". Taking
+         * the two most recent and dropping the current one does. */
+        orders(first: 2, sortKey: CREATED_AT, reverse: true) {
+          nodes {
+            id
+            name
+            createdAt
+            netPaymentSet { shopMoney { amount currencyCode } }
+          }
+        }
+      }
       customerJourneySummary {
         ready
         momentsCount { count precision }
@@ -378,6 +407,8 @@ export async function fetchOrderJourney(id, { pageSize = 50, maxPages = 4 } = {}
     if (!o) return null;
 
     if (!head) {
+      const c = o.customer || {};
+      const prior = (c.orders?.nodes || []).find((n) => n.id !== o.id) || null;
       head = {
         id: o.id,
         orderNumber: o.name,
@@ -385,6 +416,21 @@ export async function fetchOrderJourney(id, { pageSize = 50, maxPages = 4 } = {}
         note: o.note || '',
         netPayment: num(o.netPaymentSet?.shopMoney?.amount),
         currency: o.netPaymentSet?.shopMoney?.currencyCode || 'USD',
+        customerName: c.displayName || '',
+        customerOrders: Number(c.numberOfOrders) || null,
+        customerSpend: num(c.amountSpent?.amount),
+        previousOrder: prior
+          ? {
+              orderNumber: prior.name,
+              createdAt: prior.createdAt,
+              netPayment: num(prior.netPaymentSet?.shopMoney?.amount),
+              currency: prior.netPaymentSet?.shopMoney?.currencyCode || 'USD',
+              adminUrl: `https://admin.shopify.com/store/${(process.env.SHOPIFY_SHOP || '').replace(
+                '.myshopify.com',
+                ''
+              )}/orders/${(prior.id || '').split('/').pop()}`,
+            }
+          : null,
         ready: o.customerJourneySummary?.ready ?? null,
         touchpoints: o.customerJourneySummary?.momentsCount?.count ?? null,
         daysToConversion: o.customerJourneySummary?.daysToConversion ?? null,
