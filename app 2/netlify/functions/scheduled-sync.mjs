@@ -15,9 +15,12 @@ export default async () => {
 /*
  * The cron MUST be a plain string literal.
  *
- * This read `process.env.SYNC_CRON || '*/15 * * * *'`, which looks harmless and
- * is not: Netlify registers a schedule by parsing this file at build time
- * rather than running it, so an expression is not a cron it can recognise. The
+ * This read `process.env.SYNC_CRON` with a cron string as a fallback, which
+ * looks harmless and is not: Netlify registers a schedule by parsing this file
+ * at build time rather than running it, so an expression is not a cron it can
+ * recognise. (The cron literal itself is kept out of this comment on purpose —
+ * it contains the two characters that close a block comment, which broke a
+ * build once already.) The
  * function deployed, reported healthy, and was never put on a schedule — no
  * invocations, no log lines, and a dashboard whose data only moved when someone
  * pressed Refresh now. Declaring the schedule in netlify.toml did not fix it
