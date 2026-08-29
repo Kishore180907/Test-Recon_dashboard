@@ -253,6 +253,71 @@
   }
   .ads-strip b { color: var(--text-primary); font-weight: 620; font-variant-numeric: tabular-nums; }
 
+  /* ---------- customer journey drawer ---------- */
+  tbody tr.clickable { cursor: pointer; }
+  .jhint {
+    color: var(--text-muted); border-bottom: 1px dotted var(--baseline);
+  }
+  tbody tr.clickable:hover .jhint { color: var(--text-secondary); border-bottom-color: var(--text-muted); }
+
+  .jscrim { position: fixed; inset: 0; z-index: 70; display: none; background: rgba(0,0,0,.5); }
+  .jscrim.open { display: block; }
+
+  .jdrawer {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 71;
+    width: min(560px, 100vw); display: flex; flex-direction: column;
+    background: var(--surface-1); border-left: 1px solid var(--baseline);
+  }
+  .jdrawer[hidden] { display: none; }
+  .jdrawer-top {
+    display: flex; align-items: flex-start; gap: 16px; flex: none;
+    padding: 16px 22px; border-bottom: 1px solid var(--border);
+  }
+  .jdrawer-top h2 { margin: 0; font-size: 15.5px; font-weight: 640; letter-spacing: -0.01em; }
+  .jdrawer-sub { margin: 3px 0 0; font-size: 12px; color: var(--text-muted); }
+  .jdrawer-body { flex: 1 1 auto; overflow-y: auto; padding: 18px 22px 34px; }
+
+  .jnote {
+    font-size: 12.5px; line-height: 1.55; padding: 10px 12px; margin-bottom: 18px;
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary);
+  }
+  .jnote.flag { border-color: var(--series-assisted); color: var(--text-primary); }
+  .jnote b { color: var(--text-primary); }
+
+  /* The rail down the left is the timeline itself, so it is structural rather
+     than decorative — it is what makes a list of rows read as a sequence. */
+  .jsteps { list-style: none; margin: 0; padding: 0 0 0 22px; position: relative; }
+  .jsteps::before {
+    content: ""; position: absolute; left: 4px; top: 6px; bottom: 10px;
+    width: 1px; background: var(--grid);
+  }
+  .jstep { position: relative; padding: 0 0 20px; }
+  .jstep::before {
+    content: ""; position: absolute; left: -22px; top: 4px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--surface-1); border: 1.5px solid var(--baseline);
+  }
+  .jstep.paid::before { border-color: var(--series-assisted); background: var(--series-assisted); }
+  .jstep.marketing::before { border-color: var(--series-assisted); }
+  .jstep.invoice::before { border-color: var(--series-draft); }
+  .jstep.purchase::before { border-color: var(--series-online); background: var(--series-online); }
+
+  .jstep-when { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .jstep-what { font-size: 13px; font-weight: 600; margin-top: 1px; }
+  .jstep-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; word-break: break-word; }
+  .jstep-meta code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .jtag {
+    display: inline-block; margin-left: 6px; font-size: 10.5px; letter-spacing: .03em;
+    text-transform: uppercase; padding: 0 5px; border-radius: 3px;
+    border: 1px solid var(--series-assisted); color: var(--series-assisted);
+  }
+  .jrepeat { color: var(--text-muted); font-weight: 500; }
+
+  @media (max-width: 640px) { .jdrawer { width: 100vw; } }
+
   /* ---------- "How to read this" guide ---------- */
   .helpbtn {
     vertical-align: 3px; margin-left: 8px;
@@ -508,6 +573,21 @@
     </div>
   </div>
 </div>
+
+<!-- Customer journey. A right-hand drawer rather than a centre modal: it is read
+     against the row it came from, so covering the whole table would lose the
+     context that made you click. -->
+<div class="jscrim" id="j-scrim"></div>
+<aside class="jdrawer" id="jdrawer" role="dialog" aria-modal="true" aria-labelledby="j-title" hidden>
+  <header class="jdrawer-top">
+    <div>
+      <h2 id="j-title">Customer journey</h2>
+      <p class="jdrawer-sub" id="j-sub">&nbsp;</p>
+    </div>
+    <button class="guide-close" id="j-close">Close</button>
+  </header>
+  <div class="jdrawer-body" id="j-body"></div>
+</aside>
 
 <div class="guide-scrim" id="guide-scrim"></div>
 <div class="guide" id="guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" hidden>
@@ -1069,7 +1149,7 @@ function renderTable() {
     return;
   }
   tb.innerHTML = rows.map((o) => `
-    <tr>
+    <tr${o.touchpoints ? ` class="clickable" data-journey="${esc(o.id)}" data-order="${esc(o.orderNumber)}"` : ''}>
       <td class="ord">
         <a href="${o.adminUrl}" target="_blank" rel="noopener">${esc(o.orderNumber)}</a>
         ${o.creditedTo ? `<span class="sub"><span class="chip credit">credit: ${esc(o.creditedTo)}</span></span>` : ''}
@@ -1083,7 +1163,7 @@ function renderTable() {
       <td>${clickCell(o.lastClick)}</td>
       <td><span class="chip">${esc(o.trafficSource)}</span>${o.adBacked
         ? ` <span class="chip ad" title="Meta was billing for ${esc(o.campaign)} during this range — ${money2(o.adSpend)} spent">ad spend</span>` : ''}${o.touchpoints
-        ? `<span class="sub">${o.touchpoints} touchpoint${o.touchpoints === 1 ? '' : 's'}${
+        ? `<span class="sub"><span class="jhint">${o.touchpoints} touchpoint${o.touchpoints === 1 ? '' : 's'}</span>${
             o.daysToConversion ? ` · ${o.daysToConversion}d to convert` : ''}</span>` : ''}</td>
       <td>${esc(o.convertedVia || '—')}</td>
       <td>${esc(o.channelName || '—')}</td>
@@ -1190,6 +1270,125 @@ function loadGuideImages() {
     delete img.dataset.src;
   }
 }
+
+/* ---------------- customer journey drawer ---------------- */
+
+/* Journeys are fetched per order and never change once the order is placed, so
+ * one fetch per order per page load is all this ever needs. */
+const journeyCache = new Map();
+let journeyReturnFocus = null;
+
+async function openJourney(id, orderNumber) {
+  $('#jdrawer').hidden = false;
+  $('#j-scrim').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  $('#j-title').textContent = `Journey · ${orderNumber}`;
+  $('#j-sub').textContent = 'Loading…';
+  $('#j-body').innerHTML = '';
+  $('#j-close').focus();
+
+  try {
+    if (!journeyCache.has(id)) {
+      const r = await fetch(`/api/journey?id=${encodeURIComponent(id)}`, { credentials: 'include' });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+      journeyCache.set(id, body);
+    }
+    renderJourney(journeyCache.get(id));
+  } catch (err) {
+    $('#j-sub').textContent = '';
+    $('#j-body').innerHTML =
+      `<div class="jnote">Could not load the journey. ${esc(String(err.message || err))}</div>`;
+  }
+}
+
+function closeJourney() {
+  $('#jdrawer').hidden = true;
+  $('#j-scrim').classList.remove('open');
+  document.body.style.overflow = '';
+  if (journeyReturnFocus) journeyReturnFocus.focus?.();
+}
+
+function renderJourney(j) {
+  const s = j.summary;
+  $('#j-sub').textContent = [
+    `${s.sessions} session${s.sessions === 1 ? '' : 's'}`,
+    s.steps !== s.sessions ? `${s.steps} step${s.steps === 1 ? '' : 's'}` : null,
+    s.spanDays != null ? `over ${s.spanDays} day${s.spanDays === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+
+  /* The headline is whatever the two endpoint columns could not have told you.
+   * If there is nothing hidden, say that plainly rather than padding. */
+  const notes = [];
+  if (s.hiddenPaid) {
+    notes.push(`<div class="jnote flag"><b>A paid click sits in the middle of this journey.</b>
+      Neither the first nor the last touch shows it, so the order is not credited to advertising
+      anywhere else on this page.</div>`);
+  } else if (s.hiddenMarketing) {
+    notes.push(`<div class="jnote flag"><b>A marketing touch sits in the middle of this journey.</b>
+      Both the first and last click are Direct, so nothing else on this page reveals it.</div>`);
+  } else if (s.steps <= 1) {
+    notes.push(`<div class="jnote">One session. Nothing here that the first and last click
+      columns do not already show.</div>`);
+  }
+  if (s.campaigns.length) {
+    notes.push(`<div class="jnote">Campaigns touched: <b>${s.campaigns.map(esc).join('</b>, <b>')}</b></div>`);
+  }
+
+  $('#j-body').innerHTML = notes.join('') + `<ul class="jsteps">${
+    j.steps.map(stepHTML).join('')}</ul>`;
+}
+
+function stepHTML(st) {
+  const cls = [
+    'jstep', st.kind,
+    st.paid ? 'paid' : '',
+    !st.paid && st.marketing ? 'marketing' : '',
+  ].filter(Boolean).join(' ');
+
+  const when = st.count > 1
+    ? `${fmtDT(st.from)} – ${fmtDT(st.to)}`
+    : fmtDT(st.from);
+
+  let what;
+  if (st.kind === 'purchase') {
+    what = `Purchased ${money2(st.amount ?? 0, st.currency)}`;
+  } else if (st.kind === 'invoice') {
+    what = 'Opened the draft invoice';
+  } else {
+    what = esc(st.label);
+  }
+
+  const meta = [];
+  if (st.kind === 'purchase' && st.creditedTo) {
+    meta.push(`credited to ${esc(st.creditedTo)} <span class="jrepeat">(from the order note, not timestamped)</span>`);
+  }
+  if (st.utmCampaign) meta.push(`campaign <code>${esc(st.utmCampaign)}</code>`);
+  if (st.kind === 'visit' && st.landingPage) meta.push(esc(shortUrl(st.landingPage)));
+  if (st.sourceDescription) meta.push(esc(st.sourceDescription));
+
+  return `<li class="${cls}">
+    <div class="jstep-when">${esc(when)}</div>
+    <div class="jstep-what">${what}${
+      st.count > 1 ? ` <span class="jrepeat">× ${st.count} sessions</span>` : ''}${
+      st.paid ? '<span class="jtag">paid</span>' : ''}</div>
+    ${meta.length ? `<div class="jstep-meta">${meta.join(' · ')}</div>` : ''}
+  </li>`;
+}
+
+$('#tbody').addEventListener('click', (e) => {
+  // The order number is a link to Shopify admin; let it do its job.
+  if (e.target.closest('a')) return;
+  const tr = e.target.closest('tr.clickable');
+  if (!tr) return;
+  journeyReturnFocus = tr;
+  openJourney(tr.dataset.journey, tr.dataset.order);
+});
+$('#j-close').addEventListener('click', closeJourney);
+$('#j-scrim').addEventListener('click', closeJourney);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#jdrawer').hidden) closeJourney();
+});
 
 function openGuide() {
   loadGuideImages();
