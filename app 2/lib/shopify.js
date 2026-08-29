@@ -307,6 +307,100 @@ export async function fetchOrdersInRange({ startISO, endISO, updatedSinceISO, ma
   return fetchOrdersByQuery(buildRangeQuery({ startISO, endISO, updatedSinceISO }), { maxPages });
 }
 
+/* =============================================================================
+ *  One order's full customer journey.
+ * -----------------------------------------------------------------------------
+ *  Fetched on demand, never during the bulk sync. A nested moments connection
+ *  multiplies the cost of every order in a page, and the backfill already pulls
+ *  100 orders at a time — asking for 40 sessions each would blow the query cost
+ *  budget and grow every month shard several times over, all to serve a panel
+ *  most orders never have opened. One order at a time is a small, cheap query.
+ * ========================================================================== */
+const JOURNEY_QUERY = `
+  query Journey($id: ID!, $first: Int!, $after: String) {
+    order(id: $id) {
+      id
+      name
+      createdAt
+      note
+      netPaymentSet { shopMoney { amount currencyCode } }
+      customerJourneySummary {
+        ready
+        momentsCount { count precision }
+        daysToConversion
+        moments(first: $first, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            occurredAt
+            ... on CustomerVisit {
+              landingPage
+              referrerUrl
+              source
+              sourceType
+              sourceDescription
+              utmParameters { source medium campaign content term }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Shopify order GID. Validated before it ever reaches the API. */
+export const ORDER_GID = /^gid:\/\/shopify\/Order\/\d+$/;
+
+/**
+ * Every session Shopify attributed to this order, oldest first.
+ *
+ * Pages because journeys get long: the longest in a 50-order sample ran to 59
+ * sessions. `maxPages` caps a pathological one rather than looping forever.
+ */
+export async function fetchOrderJourney(id, { pageSize = 50, maxPages = 4 } = {}) {
+  if (process.env.MOCK_DATA === '1') {
+    const { SAMPLE_JOURNEYS } = await import('../fixtures/sample-journeys.js');
+    const hit = SAMPLE_JOURNEYS[id];
+    if (!hit) return null;
+    return { ...hit, moments: hit.moments.map(visit) };
+  }
+
+  if (!ORDER_GID.test(String(id || ''))) {
+    throw new Error('Not a Shopify order id');
+  }
+
+  const moments = [];
+  let after = null;
+  let head = null;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const data = await gql(JOURNEY_QUERY, { id, first: pageSize, after });
+    const o = data.order;
+    if (!o) return null;
+
+    if (!head) {
+      head = {
+        id: o.id,
+        orderNumber: o.name,
+        createdAt: o.createdAt,
+        note: o.note || '',
+        netPayment: num(o.netPaymentSet?.shopMoney?.amount),
+        currency: o.netPaymentSet?.shopMoney?.currencyCode || 'USD',
+        ready: o.customerJourneySummary?.ready ?? null,
+        touchpoints: o.customerJourneySummary?.momentsCount?.count ?? null,
+        daysToConversion: o.customerJourneySummary?.daysToConversion ?? null,
+      };
+    }
+
+    const conn = o.customerJourneySummary?.moments;
+    for (const n of conn?.nodes || []) moments.push(visit(n));
+
+    if (!conn?.pageInfo?.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+
+  return { ...head, moments };
+}
+
 export async function shopInfo() {
   const data = await gql(`{ shop { name myshopifyDomain currencyCode ianaTimezone } }`);
   return data.shop;
