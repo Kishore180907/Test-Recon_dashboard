@@ -35,6 +35,11 @@
 [functions."data"]
   timeout = 15
 
+# Calls Shopify for one order, so give it more than the 10s default. A long
+# journey pages a few times; 15s is comfortable and still fails fast.
+[functions."journey"]
+  timeout = 15
+
 [[headers]]
   for = "/*"
   [headers.values]
