@@ -291,9 +291,11 @@ check('a genuine POS order is still POS',
   check('a run of near-identical sessions collapses to one step with a count',
     rj.steps.some((s) => s.count >= 7), `max run ${Math.max(...rj.steps.map((s) => s.count))}`);
 
+  // Only real sessions count. The purchase and the previous-order anchor are
+  // events this app adds to the timeline, not things Shopify recorded as visits.
+  const sessionSteps = (j2) => j2.steps.filter((s) => s.kind === 'visit' || s.kind === 'invoice');
   check('collapsing never loses a session',
-    rj.steps.filter((s) => s.kind !== 'purchase').reduce((n, s) => n + s.count, 0)
-      === repeat.moments.length);
+    sessionSteps(rj).reduce((n, s) => n + s.count, 0) === repeat.moments.length);
 
   check('steps come back in chronological order',
     j.steps.every((s, i, a) => i === 0 || new Date(a[i - 1].from) <= new Date(s.from)));
@@ -331,6 +333,26 @@ check('a genuine POS order is still POS',
 
   check('an empty journey still builds', buildJourney([], {}).steps.length === 0);
   check('a journey with no order still builds', buildJourney(draft.moments).steps.length > 0);
+
+  /* ---- repeat-customer context ---- */
+  check('the previous order anchors the top of the timeline',
+    j.steps[0].kind === 'previous' && j.steps[0].orderNumber === '#16008');
+  check('the gap back to the previous order is measured',
+    j.steps[0].gapDays > 300, `${j.steps[0].gapDays} days`);
+  check('a long-dormant customer is flagged',
+    j.customer.dormantDays >= 180 && j.customer.orders === 4);
+  check('lifetime spend comes through', j.customer.spend === 50270);
+
+  // The anchor must not be mistaken for a marketing touch or a session.
+  check('the anchor is neither paid nor marketing',
+    j.steps[0].paid === false && j.steps[0].marketing === false);
+  check('the anchor is excluded from the session and step counts',
+    j.summary.sessions === draft.moments.length &&
+    j.summary.steps === j.steps.filter((s) => s.kind === 'visit' || s.kind === 'invoice').length);
+
+  check('a first-time buyer gets no anchor and no dormancy',
+    pj.steps[0].kind !== 'previous' && pj.customer.previousOrder === null &&
+    pj.customer.dormantDays === null && pj.customer.orders === 1);
 }
 
 /* ---- auth ----------------------------------------------------------------- */

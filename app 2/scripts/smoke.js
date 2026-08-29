@@ -87,6 +87,10 @@ check('at least one campaign shows an attribution gap worth reasoning about',
   check('journey surfaces the hidden paid click over HTTP', jb.summary.hiddenPaid === true);
   check('journey carries the staff credit from the order note',
     jb.steps[jb.steps.length - 1].creditedTo === 'Shy');
+  check('journey carries the previous order and lifetime value over HTTP',
+    jb.customer?.previousOrder?.orderNumber === '#16008' &&
+    jb.customer?.orders === 4 && jb.customer?.spend === 50270,
+    `${jb.customer?.orders} orders, prev ${jb.customer?.previousOrder?.orderNumber}`);
 
   // The id reaches a GraphQL query, so anything that is not an order id is
   // refused before it gets there.
