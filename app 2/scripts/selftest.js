@@ -270,6 +270,69 @@ check('a genuine POS order is still POS',
   isPOS({ sourceName: 'pos', appName: 'Point of Sale', channelHandle: 'pos',
     retailLocationName: 'Fairfield Commons' }));
 
+/* ---- customer journey ----------------------------------------------------- */
+{
+  const { fetchOrderJourney } = await import('../lib/shopify.js');
+  const { buildJourney, isPaidMoment, isInvoiceMoment, labelOf } =
+    await import('../lib/journey.js');
+
+  const draft = await fetchOrderJourney('gid://shopify/Order/900000000002');
+  const j = buildJourney(draft.moments, draft);
+
+  check('a journey loads for a single order', draft.moments.length > 0,
+    `${draft.moments.length} sessions`);
+
+  // The whole point: consecutive sessions from one source become one step.
+  check('consecutive sessions from the same source collapse',
+    j.summary.steps < j.summary.sessions, `${j.summary.sessions} -> ${j.summary.steps}`);
+
+  const repeat = await fetchOrderJourney('gid://shopify/Order/900000000017');
+  const rj = buildJourney(repeat.moments, repeat);
+  check('a run of near-identical sessions collapses to one step with a count',
+    rj.steps.some((s) => s.count >= 7), `max run ${Math.max(...rj.steps.map((s) => s.count))}`);
+
+  check('collapsing never loses a session',
+    rj.steps.filter((s) => s.kind !== 'purchase').reduce((n, s) => n + s.count, 0)
+      === repeat.moments.length);
+
+  check('steps come back in chronological order',
+    j.steps.every((s, i, a) => i === 0 || new Date(a[i - 1].from) <= new Date(s.from)));
+
+  check('the purchase is the last step', j.steps[j.steps.length - 1].kind === 'purchase');
+
+  // The case the drawer exists for: order #27005's endpoints are both Direct,
+  // and a Google Ads click sits in the middle.
+  check('a paid click hidden between the endpoints is flagged',
+    j.summary.hiddenPaid === true && j.summary.paidTouch === true);
+  check('the hidden campaign is named', j.summary.campaigns.includes('24053064435'));
+  check('opening the draft invoice is recognised', j.summary.openedInvoice === true);
+
+  // Free Google Shopping traffic must not be counted as advertising spend.
+  check('the Google Shopping feed is marketing but not paid',
+    isPaidMoment({ utmMedium: 'product_sync' }) === false &&
+    isPaidMoment({ utmMedium: 'cpc' }) === true &&
+    isPaidMoment({ utmMedium: 'paid_social' }) === true);
+
+  check('a draft invoice landing page is detected',
+    isInvoiceMoment({ landingPage: 'https://www.clb23.com/checkouts/do/abc/en-us' }) &&
+    !isInvoiceMoment({ landingPage: 'https://www.clb23.com/checkouts/cn/abc/en-us' }));
+
+  check('a bare direct visit is labelled Direct',
+    labelOf({ source: 'direct' }) === 'Direct' &&
+    labelOf({ source: 'an unknown source' }) === 'Direct');
+  check('a URL in the source field is shown as a hostname',
+    labelOf({ source: 'https://facebook.com/' }) === 'facebook.com');
+
+  const plain = await fetchOrderJourney('gid://shopify/Order/900000000003');
+  const pj = buildJourney(plain.moments, plain);
+  check('a single-session order reports nothing hidden',
+    pj.summary.hiddenPaid === false && pj.summary.hiddenMarketing === false &&
+    pj.summary.steps === 1);
+
+  check('an empty journey still builds', buildJourney([], {}).steps.length === 0);
+  check('a journey with no order still builds', buildJourney(draft.moments).steps.length > 0);
+}
+
 /* ---- auth ----------------------------------------------------------------- */
 process.env.DASHBOARD_PASSWORD = 'test-password';
 process.env.SESSION_SECRET = 'test-salt';

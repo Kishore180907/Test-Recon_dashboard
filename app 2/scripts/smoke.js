@@ -73,6 +73,30 @@ check('Meta totals reconcile with the per-campaign rows',
 check('at least one campaign shows an attribution gap worth reasoning about',
   payload.campaigns.some((c) => c.attributionGap > 0));
 
+/* ---- 3c. the journey endpoint --------------------------------------------- */
+{
+  const journey = (await import('../netlify/functions/journey.mjs')).default;
+  const call = (id) => journey(req(`/api/journey?id=${encodeURIComponent(id)}`));
+
+  const ok = await call('gid://shopify/Order/900000000002');
+  check('journey returns 200 for a real order', ok.status === 200);
+  const jb = await body(ok);
+  check('journey returns collapsed steps and a summary',
+    Array.isArray(jb.steps) && jb.steps.length > 0 && jb.summary.sessions > jb.summary.steps,
+    `${jb.summary.sessions} sessions -> ${jb.summary.steps} steps`);
+  check('journey surfaces the hidden paid click over HTTP', jb.summary.hiddenPaid === true);
+  check('journey carries the staff credit from the order note',
+    jb.steps[jb.steps.length - 1].creditedTo === 'Shy');
+
+  // The id reaches a GraphQL query, so anything that is not an order id is
+  // refused before it gets there.
+  for (const bad of ['', 'nope', 'gid://shopify/Customer/1', 'gid://shopify/Order/1 OR 1=1']) {
+    check(`journey rejects a bad id (${bad || 'empty'})`, (await call(bad)).status === 400);
+  }
+  check('journey 404s for an order that does not exist',
+    (await call('gid://shopify/Order/900000000999')).status === 404);
+}
+
 /* ---- 4. validation -------------------------------------------------------- */
 check('bad dates are rejected', (await data(req('/api/data?start=nope&end=2026-08-17'))).status === 400);
 check('reversed ranges are rejected',
