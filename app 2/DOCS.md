@@ -17,11 +17,15 @@ Splits store revenue three ways and lets you click into the orders behind each n
 
 | Bucket | Rule |
 |---|---|
-| **Online** | Not a draft order, no staff credit note. The customer served themselves. |
+| **Ecommerce** | Not a draft order, no staff credit note. The customer served themselves, through any digital channel — Online Store, Shop app, StockX, Facebook & Instagram, Marketplace Connect, Shopify Mobile. See `ECOMMERCE_APPS` in `lib/classify.js`. |
 | **Assisted** | A human moved the sale along — a staff credit note on the order, or a draft order whose customer journey shows a marketing or ad touchpoint. |
 | **Draft** | A draft order where **both** touchpoints are Direct. Nobody's marketing brought them in; someone at the store wrote the order up. |
 
 POS is excluded from all three and shown once as a reference figure. It is 90%+ of order volume and would drown everything else.
+
+The bucket's internal key is still `online` throughout the API, the payload and the daily series — only the label changed. Renaming the key would break every stored payload and both test suites for no gain.
+
+**Reconciling against Shopify Analytics.** The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopify's `net_sales` is gross minus discounts minus returns, *before* shipping and tax, and counts unpaid draft invoices at full value. The two will not match, and the gap is roughly the size of your open drafts. Shopify's own "E-Commerce" channel line is narrower still: it excludes Shop app, StockX and draft orders, which this dashboard counts. Compare the **Non-POS revenue** strip, never a single tile, against **all channels minus POS locations**.
 
 Each order carries first click, last click, traffic source, how it converted, the campaign, and whether Meta was billing for that campaign at the time.
 
@@ -304,7 +308,9 @@ Read this before "simplifying" anything in the list.
 
 **A location check swallowed 30 draft orders.** `isPOS()` treated any order with a retail location as POS. Plenty of non-POS orders carry one — a draft written up in a store, an online order fulfilled from one — so those orders fell out of every bucket. Shopify showed 39 drafts; the dashboard showed 9. Every genuine POS order carries `sourceName: 'pos'`, app `Point of Sale` and channel handle `pos`, so the location test bought nothing and cost accuracy.
 
-**The scheduled sync never ran.** `scheduled-sync.mjs` declares `config = { schedule: process.env.SYNC_CRON || '*/15 * * * *' }`. Netlify reads an in-code config by parsing the source at build time rather than executing it, so a computed expression is not something it can recognise as a cron string. The function deployed, appeared healthy, and was simply never registered on a schedule — no invocations, no log lines, and a watermark whose last writer was always a manual refresh. The schedule is now declared in `netlify.toml`, which Netlify reads directly. **The inline `config` export in that file is still a computed expression — make it a literal next time you touch it.**
+**The scheduled sync never ran.** `scheduled-sync.mjs` declared `config = { schedule: process.env.SYNC_CRON || '*/15 * * * *' }`. Netlify reads an in-code config by parsing the source at build time rather than executing it, so a computed expression is not something it can recognise as a cron string. The function deployed, appeared healthy, and was simply never registered on a schedule — no invocations across the whole 24-hour log retention window, and a watermark whose last writer was always a manual refresh. Found while writing this document, by noticing the dashboard was eleven hours stale.
+
+Declaring the schedule in `netlify.toml` under `[functions."scheduled-sync"]` **did not fix it** — the toml block is kept because it documents the intent, but Netlify still did not fire the function. Only a **string literal in the function's own `config` export** works. Change the interval by editing that literal, not by adding an environment variable; there deliberately is no env var for it, because that is the trap that caused this.
 
 **Netlify cancelled every push for two days.** See section 5.
 
@@ -359,8 +365,8 @@ The backfill seeds the full 90 days in one request. Each 15-minute sync re-pulls
 
 | | |
 |---|---|
+| **Push the string-literal cron in `scheduled-sync.mjs`** | committed locally, not yet deployed — until it ships the sync only runs when someone presses Refresh now |
 | Add `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID`, then redeploy | campaign panel stays hidden until then |
 | Rename `app 2`, clear the base directory, drop the `ignore` line | removes the deploy trap at its root |
-| Make `scheduled-sync.mjs`'s inline `config.schedule` a string literal | belt and braces alongside `netlify.toml` |
 | Move to a local git clone | one commit per change instead of one per directory |
 | Make the repo private, delete the committed zip | |
