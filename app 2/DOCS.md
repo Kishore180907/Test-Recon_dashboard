@@ -25,7 +25,21 @@ POS is excluded from all three and shown once as a reference figure. It is 90%+ 
 
 The bucket's internal key is still `online` throughout the API, the payload and the daily series — only the label changed. Renaming the key would break every stored payload and both test suites for no gain.
 
-**Reconciling against Shopify Analytics.** The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopify's `net_sales` is gross minus discounts minus returns, *before* shipping and tax, and counts unpaid draft invoices at full value. The two will not match, and the gap is roughly the size of your open drafts. Shopify's own "E-Commerce" channel line is narrower still: it excludes Shop app, StockX and draft orders, which this dashboard counts. Compare the **Non-POS revenue** strip, never a single tile, against **all channels minus POS locations**.
+**Reconciling against Shopify Analytics.** You no longer have to do this by hand — the second strip under the tiles (`/api/channels`) shows Shopify's own figures live. But understand what it is:
+
+| | Three tiles | Shopify Analytics strip |
+|---|---|---|
+| Source | orders in Blobs, classified by `lib/classify.js` | ShopifyQL `FROM sales GROUP BY sales_channel`, verbatim |
+| Measure | `netPaymentSet` — cash collected, after refunds | `net_sales` — gross − discounts − returns, **before** shipping and tax, counting unpaid draft invoices at full value |
+| Grouping | operational: who touched the sale | Shopify's channel taxonomy |
+
+**Never add a number from one row to a number from the other.** They are different measures of different populations.
+
+Shopify's "E-Commerce" line is Online Store + Shop + StockX + Facebook & Instagram + Marketplace Connect + **Shopify Mobile for iPhone**. Draft Orders is its own channel and sits *outside* E-Commerce — including it gives $166,241.71 instead of the $108,124.65 the admin reports for August 2026. `NON_ECOMMERCE_CHANNELS` in `lib/shopify.js` encodes that.
+
+**Why this is fetched and not derived.** Shopify reports a "Shopify Mobile for iPhone" channel for draft orders staff wrote up on a phone — $56,636 across 17 orders in August. The Admin API returns those same orders as ordinary drafts (`sourceName: 'shopify_draft_order'`, app `Draft Orders`) with **no record of the device**. It is not in the order payload at any field. Only ShopifyQL knows, so the only honest way to show Shopify's number is to ask Shopify. Those orders sit in the **Draft** tile here, which is why the Ecommerce tile (~$52k) and Shopify's E-Commerce line (~$108k) will never agree — and the "Why this differs" button on the strip explains that to the user in their own live numbers.
+
+`/api/channels` is deliberately a separate endpoint. `/api/data` reads storage only and never calls Shopify, which is what guarantees it cannot time out; the channel report does call Shopify, so it loads independently and any failure just hides the row.
 
 Each order carries first click, last click, traffic source, how it converted, the campaign, and whether Meta was billing for that campaign at the time.
 
