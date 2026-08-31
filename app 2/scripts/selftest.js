@@ -21,7 +21,7 @@ const {
   setWatermark, getWatermark, acquireLock, releaseLock,
 } = await import('../lib/repo.js');
 const { buildPayload } = await import('../lib/payload.js');
-const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf } = await import('../lib/classify.js');
+const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel } = await import('../lib/classify.js');
 const { localDateOf } = await import('../lib/timezone.js');
 const auth = await import('../lib/auth.js');
 
@@ -265,6 +265,30 @@ check('the abbreviated "Cred:" note counts as a staff credit',
 check('a draft order with a retail location is not treated as POS',
   !isPOS({ sourceName: 'shopify_draft_order', appName: 'Draft Orders',
     retailLocationName: 'Kenwood Towne Centre' }));
+
+/* ---- ecommerce channel membership -----------------------------------------
+ * Shapes below are copied from live August orders. The app-installed channels
+ * (StockX, Marketplace Connect) carry a NUMERIC sourceName and a null channel
+ * handle, which is exactly why the match is on app name — a sourceName or
+ * handle test would drop them silently.
+ * -------------------------------------------------------------------------- */
+for (const [label, o] of [
+  ['the web storefront',      { sourceName: 'web', appName: 'Online Store', channelHandle: 'web' }],
+  ['the Shop app',            { sourceName: '3890849', appName: 'Shop', channelHandle: 'shop' }],
+  ['StockX',                  { sourceName: '137182019585', appName: 'StockX', channelHandle: '' }],
+  ['Marketplace Connect',     { sourceName: '294412976129', appName: 'Meta', channelHandle: '' }],
+  ['Facebook & Instagram',    { sourceName: '111', appName: 'Facebook & Instagram', channelHandle: '' }],
+  ['Shopify Mobile',          { sourceName: 'iphone', appName: 'Shopify Mobile for iPhone', channelHandle: '' }],
+]) {
+  check(`${label} counts as an ecommerce channel`, isEcommerceChannel(o));
+}
+
+check('POS is never an ecommerce channel',
+  !isEcommerceChannel({ sourceName: 'pos', appName: 'Point of Sale', channelHandle: 'pos' }));
+
+check('a StockX order buckets to Ecommerce, not lost',
+  bucketOf({ sourceName: '137182019585', appName: 'StockX', note: '',
+    firstClickSource: 'No journey data', lastClickSource: 'No journey data' }) === 'online');
 
 check('a genuine POS order is still POS',
   isPOS({ sourceName: 'pos', appName: 'Point of Sale', channelHandle: 'pos',
