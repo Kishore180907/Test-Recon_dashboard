@@ -25,6 +25,44 @@ export function isPOS(o) {
 }
 
 /* -----------------------------------------------------------------------------
+ * 1b. Ecommerce channel membership  <<< EDIT THIS SECTION >>>
+ * -----------------------------------------------------------------------------
+ * The Ecommerce bucket is every digital selling channel, not just the web
+ * storefront. Matched on app name, because that is the only field all of these
+ * populate consistently — verified against live August orders:
+ *
+ *   Online Store          sourceName 'web'          app 'Online Store'   handle 'web'
+ *   Shop                  sourceName '3890849'      app 'Shop'           handle 'shop'
+ *   StockX                sourceName '137182019585' app 'StockX'         handle NULL
+ *   Marketplace Connect   sourceName <numeric id>   app 'Meta'           handle NULL
+ *
+ * Note the numeric sourceNames and the null channelHandles: an app-installed
+ * channel gets an app id as its sourceName, so matching on sourceName or handle
+ * would silently miss StockX and Marketplace Connect entirely. App name is the
+ * stable key. Matching is case-insensitive and substring-based on the left, so
+ * 'Shopify Mobile for iPhone' matches the 'shopify mobile' entry.
+ * ---------------------------------------------------------------------------*/
+export const ECOMMERCE_APPS = [
+  'online store',
+  'shop',
+  'stockx',
+  'facebook & instagram',
+  'meta', // Marketplace Connect surfaces as app 'Meta'
+  'marketplace connect',
+  'shopify mobile',
+];
+
+export function isEcommerceChannel(o) {
+  if (isPOS(o)) return false;
+  const app = (o.appName || '').toLowerCase().trim();
+  const channel = (o.channelName || '').toLowerCase().trim();
+  const handle = (o.channelHandle || '').toLowerCase().trim();
+  return ECOMMERCE_APPS.some(
+    (name) => app.startsWith(name) || channel.startsWith(name) || handle === name,
+  );
+}
+
+/* -----------------------------------------------------------------------------
  * 2. Draft detection
  * ---------------------------------------------------------------------------*/
 // An order counts as draft-originated if it was created from a Shopify draft
