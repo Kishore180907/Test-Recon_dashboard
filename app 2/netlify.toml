@@ -40,11 +40,6 @@
 [functions."journey"]
   timeout = 15
 
-# One ShopifyQL aggregate. Analytics queries are slower than order reads, and
-# this one is optional — if it times out the page just hides the row.
-[functions."channels"]
-  timeout = 15
-
 [[headers]]
   for = "/*"
   [headers.values]
