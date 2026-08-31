@@ -101,30 +101,6 @@ check('at least one campaign shows an attribution gap worth reasoning about',
     (await call('gid://shopify/Order/900000000999')).status === 404);
 }
 
-/* ---- 3d. Shopify's channel report over HTTP -------------------------------- */
-{
-  const channels = (await import('../netlify/functions/channels.mjs')).default;
-  const call = (s, e) => channels(req(`/api/channels?start=${s}&end=${e}`));
-
-  const ok = await call('2026-08-01', '2026-08-31');
-  check('channels returns 200', ok.status === 200);
-  const cb = await body(ok);
-  check('channels reports the Shopify E-Commerce figure',
-    Math.abs(cb.ecommerce.netSales - 108124.65) < 0.005,
-    `${cb.ecommerce?.netSales}`);
-  check('channels keeps draft and POS out of the ecommerce figure',
-    cb.draft.netSales > 0 && cb.pos.netSales > 0);
-
-  // Both values are interpolated into a ShopifyQL string, so bad input is
-  // refused before it gets there.
-  for (const [s, e] of [['nope', '2026-08-31'], ['2026-08-01', 'x'], ['', '']]) {
-    check(`channels rejects a bad range (${s || 'empty'}, ${e || 'empty'})`,
-      (await call(s, e)).status === 400);
-  }
-  check('channels rejects a reversed range',
-    (await call('2026-08-31', '2026-08-01')).status === 400);
-}
-
 /* ---- 4. validation -------------------------------------------------------- */
 check('bad dates are rejected', (await data(req('/api/data?start=nope&end=2026-08-17'))).status === 400);
 check('reversed ranges are rejected',

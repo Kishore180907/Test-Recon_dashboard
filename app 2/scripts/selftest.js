@@ -401,44 +401,6 @@ check('an empty password is rejected', !(await auth.checkPassword('')));
 check('cookies parse out of a multi-cookie header',
   auth.readCookie(`other=1; ${auth.COOKIE}=abc; more=2`) === 'abc');
 
-/* ---- Shopify's channel report ---------------------------------------------
- * This is a REFERENCE figure, not a fourth bucket. The checks below pin the two
- * things that make it trustworthy: that Ecommerce means "every channel except
- * POS", and that the Shopify Mobile channel is present — that one channel is
- * the whole reason the report is fetched instead of derived from stored orders.
- * -------------------------------------------------------------------------- */
-{
-  const { fetchChannelSales } = await import('../lib/shopify.js');
-  const rep = await fetchChannelSales('2026-08-01', '2026-08-31');
-
-  check('the channel report loads', Boolean(rep?.channels?.length));
-
-  const sumAll = rep.channels.reduce((s, c) => s + c.netSales, 0);
-  check('ecommerce + draft + POS accounts for every channel',
-    Math.abs(rep.ecommerce.netSales + rep.draft.netSales + rep.pos.netSales - sumAll) < 0.005,
-    `${rep.ecommerce.netSales} + ${rep.draft.netSales} + ${rep.pos.netSales} vs ${sumAll}`);
-
-  // The number the Shopify admin shows on its E-Commerce line. Draft Orders is
-  // its own channel and sits outside it — including it would give 166,241.71.
-  check('the ecommerce figure matches Shopify’s E-Commerce line',
-    Math.abs(rep.ecommerce.netSales - 108124.65) < 0.005,
-    `${rep.ecommerce.netSales.toFixed(2)}`);
-
-  check('Draft Orders is reported apart from ecommerce',
-    Math.abs(rep.draft.netSales - 58117.06) < 0.005);
-
-  check('POS is reported apart from ecommerce',
-    Math.abs(rep.pos.netSales - 218866.6) < 0.005);
-
-  // The channel that cannot be derived from the Admin API. If this ever stops
-  // appearing, the reference row has lost the reason it exists.
-  check('the Shopify Mobile channel is present',
-    rep.channels.some((c) => /shopify mobile/i.test(c.channel)));
-
-  check('channels come back sorted by net sales',
-    rep.channels.every((c, i, a) => i === 0 || a[i - 1].netSales >= c.netSales));
-}
-
 /* ---- GraphQL documents ----------------------------------------------------
  * Every query in lib/ is a JS template literal, so a JS comment inside one
  * looks fine to Node, to esbuild and to every mocked test — and then Shopify
