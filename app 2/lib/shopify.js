@@ -341,9 +341,10 @@ const JOURNEY_QUERY = `
         displayName
         numberOfOrders
         amountSpent { amount currencyCode }
-        /* Two, not one: customer.lastOrder returns THIS order for anything
-         * recent, so it can never answer "what did they buy before?". Taking
-         * the two most recent and dropping the current one does. */
+        # Two, not one: customer.lastOrder returns THIS order for anything
+        # recent, so it can never answer "what did they buy before?". Taking
+        # the two most recent and dropping the current one does.
+        # (GraphQL comments are #. A JS block comment here is a parse error.)
         orders(first: 2, sortKey: CREATED_AT, reverse: true) {
           nodes {
             id
