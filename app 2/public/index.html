@@ -462,8 +462,8 @@
 
   <div class="tiles" id="tiles">
     <button class="tile online" data-bucket="online" aria-selected="true">
-      <div class="tile-head"><span class="swatch"></span><span class="tile-name">ONLINE ORDERS</span>
-        <span class="tile-rule">not draft · not POS</span></div>
+      <div class="tile-head"><span class="swatch"></span><span class="tile-name">ECOMMERCE ORDERS</span>
+        <span class="tile-rule">all digital channels · not draft · not POS</span></div>
       <div class="hero" data-hero>—</div>
       <div class="tile-sub"><span><b data-count>—</b> orders</span><span>AOV <b data-aov>—</b></span></div>
       <div class="sharebar"><i data-share style="width:0%"></i></div>
@@ -501,7 +501,7 @@
     <div class="card-head">
       <div class="card-title">Daily revenue by bucket</div>
       <div class="legend">
-        <span><i style="background:var(--series-online)"></i>Online</span>
+        <span><i style="background:var(--series-online)"></i>Ecommerce</span>
         <span><i style="background:var(--series-assisted)"></i>Assisted</span>
         <span><i style="background:var(--series-draft)"></i>Draft</span>
       </div>
@@ -551,7 +551,7 @@
 
   <div class="card">
     <div class="table-head">
-      <div class="table-title"><i id="tt-swatch"></i><span id="tt-name">Online orders</span></div>
+      <div class="table-title"><i id="tt-swatch"></i><span id="tt-name">Ecommerce orders</span></div>
       <span class="count-pill" id="tt-count">—</span>
       <div class="spacer"></div>
       <input type="search" id="search" placeholder="Filter order #, source, customer…" />
@@ -611,12 +611,14 @@
            happen</em>. Not where the money came from — who or what closed it.</p>
         <figure>
           <img data-src="/guide/buckets.png"
-               alt="Three tiles side by side: Online orders, Assisted orders and Draft orders, each showing revenue, order count and average order value." />
+               alt="Three tiles side by side: Ecommerce orders, Assisted orders and Draft orders, each showing revenue, order count and average order value." />
           <figcaption>The three tiles always add up to your total online revenue for the dates you picked.</figcaption>
         </figure>
         <ul class="qa">
-          <li><b>Online</b> The customer found you, shopped and checked out on their own. Nobody
-              from your team touched it.</li>
+          <li><b>Ecommerce</b> The customer found you, shopped and checked out on their own,
+              through any of your digital channels — your website, the Shop app, StockX,
+              Facebook &amp; Instagram, Marketplace Connect or Shopify Mobile. Nobody from your
+              team touched it.</li>
           <li><b>Assisted</b> Someone helped. Either a staff member is credited on the order note,
               or the customer came in through an ad or a marketing email before buying.</li>
           <li><b>Draft</b> Written up by hand in Shopify and sent to the customer as an invoice —
@@ -955,7 +957,7 @@ function setLive(kind) {
 }
 
 /* ---------------- render ---------------- */
-const NAMES = { online: 'Online orders', assisted: 'Assisted orders', draft: 'Draft orders' };
+const NAMES = { online: 'Ecommerce orders', assisted: 'Assisted orders', draft: 'Draft orders' };
 const VARS  = { online: 'var(--series-online)', assisted: 'var(--series-assisted)', draft: 'var(--series-draft)' };
 
 function render() {
@@ -1047,7 +1049,7 @@ function renderCampaigns() {
 
 /* ---------------- stacked bar chart ---------------- */
 const SERIES = [
-  { key: 'online',   label: 'Online',   color: 'var(--series-online)' },
+  { key: 'online',   label: 'Ecommerce', color: 'var(--series-online)' },
   { key: 'assisted', label: 'Assisted', color: 'var(--series-assisted)' },
   { key: 'draft',    label: 'Draft',    color: 'var(--series-draft)' },
 ];
