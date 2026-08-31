@@ -166,23 +166,6 @@
   }
   .strip b { color: var(--text-primary); font-weight: 620; font-variant-numeric: tabular-nums; }
 
-  /* Shopify's own channel report. Deliberately set apart from the strip above:
-     it is a different measure (net_sales, not cash collected) and must not be
-     read as another slice of the same pie. */
-  .strip-ref { margin-top: -10px; gap: 18px; }
-  .strip-tag {
-    font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
-    color: var(--text-muted); border: 1px solid var(--border);
-    border-radius: 5px; padding: 2px 7px;
-  }
-  .chan-detail { color: var(--text-muted); font-size: 11.5px; }
-  .linkish {
-    background: none; border: 0; padding: 0; margin-left: auto;
-    color: var(--text-muted); font: inherit; font-size: 11.5px;
-    text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
-  }
-  .linkish:hover { color: var(--text-primary); }
-
   /* ---------- chart ---------- */
   .card {
     background: var(--surface-1); border: 1px solid var(--border);
@@ -514,15 +497,6 @@
     <span>Orders in view <b id="t-cached">—</b></span>
   </div>
 
-  <div class="strip strip-ref" id="chan-strip" hidden>
-    <span class="strip-tag">Shopify Analytics · net sales</span>
-    <span>Ecommerce <b id="c-ecom">—</b></span>
-    <span>Draft <b id="c-draft">—</b></span>
-    <span>POS <b id="c-pos">—</b></span>
-    <span class="chan-detail" id="c-detail"></span>
-    <button type="button" class="linkish" id="c-why">Why this differs</button>
-  </div>
-
   <div class="card">
     <div class="card-head">
       <div class="card-title">Daily revenue by bucket</div>
@@ -805,7 +779,6 @@ const state = {
   sortKey: 'createdAt', sortDir: -1,
   paused: false, timer: null, tick: null, nextAt: 0, inflight: false,
   syncing: false, syncIntervalMin: 15, coverage: null,
-  channels: null,
 };
 
 /* ---------------- formatting ---------------- */
@@ -885,45 +858,12 @@ async function load() {
     hideBanner();
     render();
     setLive();
-    loadChannels(); // fire-and-forget: never blocks or breaks the dashboard
   } catch (err) {
     setLive('err');
     showBanner(`Couldn't load the snapshot: ${err.message}. Showing the last good data; retrying automatically.`);
   } finally {
     state.inflight = false;
     state.nextAt = Date.now() + POLL_MS;
-  }
-}
-
-/* ---------------- Shopify's own channel report ----------------
- * Loaded separately from /api/data because this one does call Shopify and is
- * allowed to be slow or unavailable. It is a reference figure, not part of the
- * three-bucket split, so any failure just hides the row. */
-async function loadChannels() {
-  const strip = $('#chan-strip');
-  try {
-    const q = new URLSearchParams({ start: state.start, end: state.end });
-    const res = await fetch(`/api/channels?${q}`, { credentials: 'include' });
-    if (!res.ok) { strip.hidden = true; return; }
-
-    const d = await res.json();
-    if (!d.available || !d.channels?.length) { strip.hidden = true; return; }
-
-    state.channels = d;
-    $('#c-ecom').textContent =
-      `${money2(d.ecommerce.netSales)} · ${int(d.ecommerce.orders)} orders`;
-    $('#c-draft').textContent = money2(d.draft.netSales);
-    $('#c-pos').textContent   = money2(d.pos.netSales);
-
-    // Name the channels that make up the Ecommerce figure, so it is obvious
-    // what is and isn't in it.
-    const inEcom = d.channels.filter(
-      (c) => !/^(point of sale|draft orders)/i.test(c.channel),
-    );
-    $('#c-detail').textContent = inEcom.map((c) => c.channel).join(' · ');
-    strip.hidden = false;
-  } catch {
-    strip.hidden = true;
   }
 }
 
@@ -1517,27 +1457,6 @@ function closeGuide() {
 }
 $('#help').addEventListener('click', openGuide);
 $('#guide-close').addEventListener('click', closeGuide);
-
-/* Explains, in the user's own numbers, why Shopify's Ecommerce figure and the
- * Ecommerce tile disagree. Written from live data rather than hardcoded, so it
- * stays true as the window changes. */
-$('#c-why').addEventListener('click', () => {
-  const c = state.channels;
-  const d = state.data;
-  if (!c || !d) return;
-
-  const mobile = c.channels.find((x) => /shopify mobile/i.test(x.channel));
-  const parts = [
-    `Shopify's Ecommerce figure is ${money2(c.ecommerce.netSales)}; the Ecommerce tile is ${money2(d.buckets.online.revenue)}. They measure different things and are both right.`,
-    `Shopify reports net sales — gross minus discounts and returns, before shipping and tax — and counts unpaid draft invoices at full value. The tiles count cash actually collected.`,
-  ];
-  if (mobile) {
-    parts.push(
-      `Shopify also counts a "${mobile.channel}" channel (${money2(mobile.netSales)} across ${int(mobile.orders)} orders). Those are draft orders staff wrote up on a phone; Shopify's API returns them as ordinary drafts with no record of the device, so they sit in the Draft tile here.`,
-    );
-  }
-  showBanner(parts.join(' '), true);
-});
 $('#guide-scrim').addEventListener('click', closeGuide);
 // Clicking the dimmed margin around the card closes it too; clicking the card
 // itself must not, or every stray click while reading would dismiss the thing.
