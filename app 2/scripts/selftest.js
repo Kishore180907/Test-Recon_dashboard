@@ -377,6 +377,30 @@ check('an empty password is rejected', !(await auth.checkPassword('')));
 check('cookies parse out of a multi-cookie header',
   auth.readCookie(`other=1; ${auth.COOKIE}=abc; more=2`) === 'abc');
 
+/* ---- GraphQL documents ----------------------------------------------------
+ * Every query in lib/ is a JS template literal, so a JS comment inside one
+ * looks fine to Node, to esbuild and to every mocked test — and then Shopify
+ * rejects the whole document with PARSE_ERROR at runtime. That is exactly how
+ * the journey drawer shipped broken once. GraphQL comments start with #.
+ * -------------------------------------------------------------------------- */
+{
+  const fsSync = await import('node:fs');
+  const dir = new URL('../lib/', import.meta.url);
+  let offenders = [];
+  for (const f of fsSync.readdirSync(dir).filter((n) => n.endsWith('.js'))) {
+    const src = fsSync.readFileSync(new URL(f, dir), 'utf8');
+    for (const m of src.matchAll(/`([^`]*)`/g)) {
+      const body = m[1];
+      if (!/\b(query|mutation)\s+\w+\s*[({]/.test(body)) continue;
+      if (/\/\*|\*\/|(^|\s)\/\//.test(body)) {
+        offenders.push(`${f}:${src.slice(0, m.index).split('\n').length}`);
+      }
+    }
+  }
+  check('no GraphQL document carries a JS comment', offenders.length === 0,
+    offenders.join(', '));
+}
+
 /* -------------------------------------------------------------------------- */
 console.log(`\n${failures ? `${failures} FAILED` : 'All checks passed'}\n`);
 process.exit(failures ? 1 : 0);
