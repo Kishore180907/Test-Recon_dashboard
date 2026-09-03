@@ -401,6 +401,71 @@ check('an empty password is rejected', !(await auth.checkPassword('')));
 check('cookies parse out of a multi-cookie header',
   auth.readCookie(`other=1; ${auth.COOKIE}=abc; more=2`) === 'abc');
 
+/* ---- Shopify's channel report ---------------------------------------------
+ * This is a REFERENCE figure, not a fourth bucket. The checks below pin the two
+ * things that make it trustworthy: that Ecommerce means "every channel except
+ * POS", and that the Shopify Mobile channel is present — that one channel is
+ * the whole reason the report is fetched instead of derived from stored orders.
+ * -------------------------------------------------------------------------- */
+{
+  const { fetchChannelSales } = await import('../lib/shopify.js');
+  const rep = await fetchChannelSales('2026-08-01', '2026-08-31');
+
+  check('the channel report loads', Boolean(rep?.channels?.length));
+
+  const sumAll = rep.channels.reduce((s, c) => s + c.netSales, 0);
+  check('ecommerce + draft + POS accounts for every channel',
+    Math.abs(rep.ecommerce.netSales + rep.draft.netSales + rep.pos.netSales - sumAll) < 0.005,
+    `${rep.ecommerce.netSales} + ${rep.draft.netSales} + ${rep.pos.netSales} vs ${sumAll}`);
+
+  // The number the Shopify admin shows on its E-Commerce line. Draft Orders is
+  // its own channel and sits outside it — including it would give 166,241.71.
+  check('the ecommerce figure matches Shopify’s E-Commerce line',
+    Math.abs(rep.ecommerce.netSales - 108124.65) < 0.005,
+    `${rep.ecommerce.netSales.toFixed(2)}`);
+
+  check('Draft Orders is reported apart from ecommerce',
+    Math.abs(rep.draft.netSales - 58117.06) < 0.005);
+
+  check('POS is reported apart from ecommerce',
+    Math.abs(rep.pos.netSales - 218866.6) < 0.005);
+
+  // The channel that cannot be derived from the Admin API. If this ever stops
+  // appearing, the tile has lost the reason it exists.
+  check('the Shopify Mobile channel is present',
+    rep.channels.some((c) => /shopify mobile/i.test(c.channel)));
+
+  /* ---- the Shopify Mobile tile's figures ----------------------------------
+   * The tile renders straight off rep.mobile, so its exact shape is pinned.
+   * Verified against the live store for August 2026: 17 orders, $56,636. */
+  check('the mobile block reports the channel total',
+    Math.abs(rep.mobile.netSales - 56636) < 0.005 && rep.mobile.orders === 17,
+    `${rep.mobile.orders} orders / ${rep.mobile.netSales}`);
+
+  check('the mobile block carries the channel name for the tile label',
+    /^shopify mobile/i.test(rep.mobile.label), rep.mobile.label);
+
+  check('the mobile block flags that the channel exists', rep.mobile.present === true);
+
+  /* Shopify counts this channel INSIDE its E-Commerce line, so the tile is a
+   * breakdown of that $108,124.65 — not a fourth number to add to it. It is
+   * shown separately only because these orders land in the dashboard's Draft
+   * bucket, which is the discrepancy people kept tripping over. */
+  check('mobile is part of Shopify’s ecommerce figure, not additional to it',
+    rep.mobile.netSales < rep.ecommerce.netSales,
+    `${rep.mobile.netSales} inside ${rep.ecommerce.netSales}`);
+
+  check('mobile plus the other ecommerce channels equals the ecommerce total',
+    Math.abs(
+      rep.channels
+        .filter((c) => !/^(point of sale|draft orders)/i.test(c.channel))
+        .reduce((s, c) => s + c.netSales, 0) - rep.ecommerce.netSales,
+    ) < 0.005);
+
+  check('channels come back sorted by net sales',
+    rep.channels.every((c, i, a) => i === 0 || a[i - 1].netSales >= c.netSales));
+}
+
 /* ---- GraphQL documents ----------------------------------------------------
  * Every query in lib/ is a JS template literal, so a JS comment inside one
  * looks fine to Node, to esbuild and to every mocked test — and then Shopify

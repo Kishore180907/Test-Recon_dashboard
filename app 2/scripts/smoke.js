@@ -101,6 +101,30 @@ check('at least one campaign shows an attribution gap worth reasoning about',
     (await call('gid://shopify/Order/900000000999')).status === 404);
 }
 
+/* ---- 3d. Shopify's channel report over HTTP -------------------------------- */
+{
+  const channels = (await import('../netlify/functions/channels.mjs')).default;
+  const call = (s, e) => channels(req(`/api/channels?start=${s}&end=${e}`));
+
+  const ok = await call('2026-08-01', '2026-08-31');
+  check('channels returns 200', ok.status === 200);
+  const cb = await body(ok);
+  check('channels reports the Shopify E-Commerce figure',
+    Math.abs(cb.ecommerce.netSales - 108124.65) < 0.005,
+    `${cb.ecommerce?.netSales}`);
+  check('channels keeps draft and POS out of the ecommerce figure',
+    cb.draft.netSales > 0 && cb.pos.netSales > 0);
+
+  // Both values are interpolated into a ShopifyQL string, so bad input is
+  // refused before it gets there.
+  for (const [s, e] of [['nope', '2026-08-31'], ['2026-08-01', 'x'], ['', '']]) {
+    check(`channels rejects a bad range (${s || 'empty'}, ${e || 'empty'})`,
+      (await call(s, e)).status === 400);
+  }
+  check('channels rejects a reversed range',
+    (await call('2026-08-31', '2026-08-01')).status === 400);
+}
+
 /* ---- 4. validation -------------------------------------------------------- */
 check('bad dates are rejected', (await data(req('/api/data?start=nope&end=2026-08-17'))).status === 400);
 check('reversed ranges are rejected',
@@ -160,7 +184,12 @@ const cookie = setCookie.split(';')[0];
 res = await gate(req('/', { headers: { cookie } }), ctx);
 check('a valid cookie is let through', (await res.text()) === 'PASSTHROUGH');
 
-res = await gate(req('/', { headers: { cookie: cookie.replace(/.$/, '0') } }), ctx);
+// Flip the final character to a guaranteed-different one. Replacing it with a
+// fixed '0' was a no-op whenever the signature already ended in '0', so this
+// check passed or failed depending on the random cookie. (selftest.js had the
+// same bug for its token and was fixed the same way.)
+const tamperedCookie = cookie.slice(0, -1) + (cookie.endsWith('0') ? '1' : '0');
+res = await gate(req('/', { headers: { cookie: tamperedCookie } }), ctx);
 check('a tampered cookie is refused', res.status === 401);
 
 /* -------------------------------------------------------------------------- */

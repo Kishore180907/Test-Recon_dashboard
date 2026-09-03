@@ -38,6 +38,7 @@ const handlers = {
   '/api/config': (await import('../netlify/functions/appconfig.mjs')).default,
   '/api/status': (await import('../netlify/functions/status.mjs')).default,
   '/api/journey': (await import('../netlify/functions/journey.mjs')).default,
+  '/api/channels': (await import('../netlify/functions/channels.mjs')).default,
   '/api/login': (await import('../netlify/functions/login.mjs')).default,
   '/api/sync-now': (await import('../netlify/functions/sync-now.mjs')).default,
   '/api/backfill': (await import('../netlify/functions/backfill-background.mjs')).default,
