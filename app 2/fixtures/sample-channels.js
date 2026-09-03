@@ -45,6 +45,46 @@ const tally = (list) =>
  * Mirrors fetchChannelSales(). The window is ignored — the fixture always
  * returns the August shape, which is what the tests assert against.
  */
+/* Per-order channels, copied from the live August 2026 ShopifyQL response.
+ * The Shopify Mobile entries are the interesting ones: the Admin API reports
+ * every one of these as a plain draft order, so without this overlay the table
+ * would label them "Draft Orders". Order numbers match sample-orders.js where
+ * they overlap; the rest exercise the map's fall-through. */
+const ORDER_CHANNELS = [
+  ['#27790', 'Shopify Mobile for iPhone'],
+  ['#26897', 'Shopify Mobile for iPhone'],
+  ['#26684', 'Shopify Mobile for iPhone'],
+  ['#27530', 'Shopify Mobile for iPhone'],
+  ['#26648', 'Shopify Mobile for iPhone'],
+  ['#26686', 'Shopify Mobile for iPhone'],
+  ['#27875', 'Shopify Mobile for iPhone'],
+  ['#27333', 'Shopify Mobile for iPhone'],
+  ['#27327', 'Shopify Mobile for iPhone'],
+  ['#27334', 'Shopify Mobile for iPhone'],
+  ['#26826', 'Shopify Mobile for iPhone'],
+  ['#26840', 'Shopify Mobile for iPhone'],
+  ['#27005', 'Shopify Mobile for iPhone'],
+  ['#26751', 'Shopify Mobile for iPhone'],
+  ['#27757', 'Shopify Mobile for iPhone'],
+  ['#27703', 'Shopify Mobile for iPhone'],
+  ['#27580', 'Shopify Mobile for iPhone'],
+  ['#27806', 'Draft Orders'],
+  ['#27227', 'Draft Orders'],
+  ['#27739', 'Online Store'],
+  ['#27843', 'Online Store'],
+  ['#27870', 'Online Store'],
+  ['#27867', 'Online Store'],
+  ['#26925', 'Shop'],
+  ['#27844', 'Shop'],
+  ['#27632', 'Point of Sale'],
+  ['04-EEA1P1YY1V', 'StockX'],
+];
+
+/** Mirrors fetchOrderChannels(): order name -> Shopify's sales channel. */
+export function SAMPLE_ORDER_CHANNELS() {
+  return new Map(ORDER_CHANNELS);
+}
+
 export function SAMPLE_CHANNELS() {
   const channels = AUGUST_2026.slice().sort((a, b) => b.netSales - a.netSales);
   const of = (kind) => channels.filter((c) => channelClass(c.channel) === kind);
