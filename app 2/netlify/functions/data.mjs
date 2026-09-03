@@ -6,6 +6,7 @@ import {
   readMetaInsights,
   getWatermark,
   getBackfill,
+  getOrderChannels,
 } from '../../lib/repo.js';
 import { buildPayload } from '../../lib/payload.js';
 import { metaCredentialMode } from '../../lib/meta.js';
@@ -40,13 +41,16 @@ export default async (req) => {
   }
 
   try {
-    const [orders, posTotals, metaInsights, watermark, backfill] = await Promise.all([
-      readOrders(start, end),
-      readPosTotals(start, end),
-      readMetaInsights(start, end),
-      getWatermark(),
-      getBackfill(),
-    ]);
+    const [orders, posTotals, metaInsights, watermark, backfill, orderChannels] =
+      await Promise.all([
+        readOrders(start, end),
+        readPosTotals(start, end),
+        readMetaInsights(start, end),
+        getWatermark(),
+        getBackfill(),
+        // Cached at sync time, so this stays a pure storage read.
+        getOrderChannels(),
+      ]);
 
     if (!watermark && (!backfill || backfill.status !== 'done')) {
       return json(503, {
@@ -62,6 +66,7 @@ export default async (req) => {
         orders,
         posTotals,
         metaInsights,
+        orderChannels,
         start,
         end,
         exclusive,

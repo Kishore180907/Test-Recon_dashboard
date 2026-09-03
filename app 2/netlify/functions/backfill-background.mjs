@@ -6,9 +6,9 @@
  * When it nears its time budget it re-invokes itself and hands off the cursor.
  */
 
-import { fetchOrdersPage, buildBackfillQuery } from '../../lib/shopify.js';
+import { fetchOrdersPage, buildBackfillQuery, fetchOrderChannels } from '../../lib/shopify.js';
 import { localDayToUTC } from '../../lib/timezone.js';
-import { upsertOrders, getBackfill, setBackfill, setWatermark } from '../../lib/repo.js';
+import { upsertOrders, getBackfill, setBackfill, setWatermark, setOrderChannels } from '../../lib/repo.js';
 import { coverageWindow, COVERAGE_DAYS, syncMetaAds } from '../../lib/sync.js';
 
 const TIME_BUDGET_MS = 12 * 60 * 1000; // leave slack inside the 15-minute cap
@@ -95,6 +95,21 @@ export default async (req) => {
             : `[backfill] meta skipped · ${meta.reason}${meta.error ? ` · ${meta.error}` : ''}`
         );
 
+        // Seed the order -> sales channel map too. Without it the first render
+        // buckets mobile-app drafts as Draft, and the Ecommerce tile is short by
+        // the size of that channel until the next sync.
+        let channels = null;
+        try {
+          const map = await fetchOrderChannels(cover.start, cover.end);
+          if (map.size) {
+            channels = { count: map.size, at: Date.now() };
+            await setOrderChannels(Object.fromEntries(map));
+          }
+          console.log(`[backfill] channels · ${map.size} orders`);
+        } catch (err) {
+          console.log(`[backfill] channels skipped · ${err.message}`);
+        }
+
         await setWatermark({
           lastSyncAt: Date.now(),
           lastSyncISO: new Date().toISOString(),
@@ -103,6 +118,7 @@ export default async (req) => {
           nonPos,
           pos,
           meta,
+          channels,
           coverage: { ...cover, days: COVERAGE_DAYS },
         });
         console.log(`[backfill] done · ${pages} pages · ${nonPos} non-POS · ${pos} POS`);
