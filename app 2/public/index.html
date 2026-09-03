@@ -122,7 +122,13 @@
   .banner.note { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
 
   /* ---------- stat tiles ---------- */
-  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
+  /* auto-fit keeps this correct whether the fourth tile is shown or hidden:
+     three across normally, four when the Shopify Mobile tile appears, and it
+     reflows on its own on narrow screens without a second breakpoint. */
+  .tiles {
+    display: grid; gap: 14px; margin-bottom: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
   @media (max-width: 900px) { .tiles { grid-template-columns: 1fr; } }
 
   .tile {
@@ -142,7 +148,7 @@
   .tile-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); flex: none; }
   .tile-name { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); letter-spacing: .01em; }
-  .tile-rule { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+  .tile-rule { font-size: 11px; color: var(--text-muted); margin-left: auto; text-align: right; }
 
   .hero { font-size: 34px; font-weight: 660; letter-spacing: -0.022em; line-height: 1.08; }
   .hero .cents { font-size: 20px; font-weight: 560; color: var(--text-secondary); }
@@ -156,6 +162,18 @@
   .tile.online   { --accent: var(--series-online); }
   .tile.assisted { --accent: var(--series-assisted); }
   .tile.draft    { --accent: var(--series-draft); }
+
+  /* Reference tile: a reported figure, not a bucket you can open. Reuses the
+     violet already defined for Meta so no fourth hue enters the palette, and
+     drops the pointer affordances so it does not read as clickable. */
+  .tile.mobile {
+    --accent: var(--meta);
+    cursor: default;
+  }
+  .tile.mobile:hover { border-color: var(--border); }
+  .tile-note {
+    margin-top: 12px; font-size: 11.5px; color: var(--text-muted);
+  }
 
   /* ---------- totals strip ---------- */
   .strip {
@@ -487,6 +505,21 @@
       <div class="sharebar"><i data-share style="width:0%"></i></div>
       <div class="sharepct" data-sharetext>—</div>
     </button>
+
+    <!-- Fourth tile. NOT a bucket, and deliberately a div rather than a button:
+         there are no orders behind it to drill into. Shopify reports this
+         channel, but the Admin API does not expose the device on the underlying
+         orders (verified: app, sourceName, channelInformation, sourceIdentifier,
+         publication and customAttributes are all empty or generic), so the
+         figure is fetched from Shopify Analytics and the rows cannot be listed.
+         Hidden until /api/channels answers. -->
+    <div class="tile mobile" id="tile-mobile" hidden>
+      <div class="tile-head"><span class="swatch"></span><span class="tile-name">SHOPIFY MOBILE</span>
+        <span class="tile-rule">Shopify Analytics</span></div>
+      <div class="hero" id="m-hero">—</div>
+      <div class="tile-sub"><span><b id="m-count">—</b> orders</span><span>AOV <b id="m-aov">—</b></span></div>
+      <div class="tile-note"><span id="m-name">—</span> · net sales · these orders sit in your Draft tile</div>
+    </div>
   </div>
 
   <div class="strip">
@@ -858,12 +891,44 @@ async function load() {
     hideBanner();
     render();
     setLive();
+    loadMobileTile(); // fire-and-forget: never blocks or breaks the dashboard
   } catch (err) {
     setLive('err');
     showBanner(`Couldn't load the snapshot: ${err.message}. Showing the last good data; retrying automatically.`);
   } finally {
     state.inflight = false;
     state.nextAt = Date.now() + POLL_MS;
+  }
+}
+
+/* ---------------- Shopify Mobile tile ----------------
+ * Loaded separately from /api/data, which reads storage only and never calls
+ * Shopify — that is what guarantees it cannot time out. This one does call
+ * Shopify, so it is fire-and-forget: any failure just hides the tile and the
+ * dashboard is unaffected. */
+async function loadMobileTile() {
+  const tile = $('#tile-mobile');
+  try {
+    const q = new URLSearchParams({ start: state.start, end: state.end });
+    const res = await fetch(`/api/channels?${q}`, { credentials: 'include' });
+    if (!res.ok) { tile.hidden = true; return; }
+
+    const d = await res.json();
+    const m = d.available && d.mobile;
+
+    // No orders on this channel in this window is a real answer, not a failure:
+    // showing a $0 tile would be noise, so it hides.
+    if (!m || !m.present || m.orders === 0) { tile.hidden = true; return; }
+
+    // Shopify's own name for the channel, so the tile stays honest if it ever
+    // changes (e.g. an Android variant appearing).
+    $('#m-name').textContent = m.label;
+    heroMoney($('#m-hero'), m.netSales);
+    $('#m-count').textContent = int(m.orders);
+    $('#m-aov').textContent = money(m.netSales / m.orders);
+    tile.hidden = false;
+  } catch {
+    tile.hidden = true;
   }
 }
 
@@ -1230,9 +1295,12 @@ function exportCSV() {
 }
 
 /* ---------------- events ---------------- */
-$$('#tiles .tile').forEach((t) => t.addEventListener('click', () => {
+/* [data-bucket], not .tile: the Shopify Mobile tile is a reference figure with
+ * no orders behind it. Binding it here would set state.bucket to undefined and
+ * blank the drill-down table. */
+$$('#tiles .tile[data-bucket]').forEach((t) => t.addEventListener('click', () => {
   state.bucket = t.dataset.bucket;
-  $$('#tiles .tile').forEach((x) => x.setAttribute('aria-selected', String(x === t)));
+  $$('#tiles .tile[data-bucket]').forEach((x) => x.setAttribute('aria-selected', String(x === t)));
   renderTable();
   $('#tbl').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }));
