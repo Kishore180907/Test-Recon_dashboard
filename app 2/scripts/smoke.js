@@ -115,6 +115,14 @@ check('at least one campaign shows an attribution gap worth reasoning about',
   check('channels keeps draft and POS out of the ecommerce figure',
     cb.draft.netSales > 0 && cb.pos.netSales > 0);
 
+  // The drill-down overlay: order -> Shopify's real channel, over HTTP.
+  check('channels returns the per-order map',
+    cb.orderChannels && Object.keys(cb.orderChannels).length > 0,
+    `${Object.keys(cb.orderChannels || {}).length} orders`);
+  check('the per-order map separates phone drafts from desk drafts',
+    /^shopify mobile/i.test(cb.orderChannels['#27790'] || '') &&
+    cb.orderChannels['#27806'] === 'Draft Orders');
+
   // Both values are interpolated into a ShopifyQL string, so bad input is
   // refused before it gets there.
   for (const [s, e] of [['nope', '2026-08-31'], ['2026-08-01', 'x'], ['', '']]) {

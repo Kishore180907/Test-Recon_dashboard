@@ -455,6 +455,35 @@ check('cookies parse out of a multi-cookie header',
     rep.mobile.netSales < rep.ecommerce.netSales,
     `${rep.mobile.netSales} inside ${rep.ecommerce.netSales}`);
 
+  /* ---- per-order channels -------------------------------------------------
+   * The correction that made the drill-down possible: ShopifyQL groups by
+   * order_name as well as sales_channel, so the channel IS knowable per order —
+   * including the phone-written drafts the Admin API cannot distinguish. */
+  {
+    const { fetchOrderChannels } = await import('../lib/shopify.js');
+    const byOrder = await fetchOrderChannels('2026-08-01', '2026-08-31');
+
+    check('per-order channels load', byOrder.size > 0, `${byOrder.size} orders`);
+
+    check('a phone-written draft resolves to Shopify Mobile',
+      /^shopify mobile/i.test(byOrder.get('#27790') || ''), byOrder.get('#27790'));
+
+    check('a desk-written draft stays Draft Orders',
+      byOrder.get('#27806') === 'Draft Orders');
+
+    // Both are drafts to the Admin API. If these ever collapse to one value the
+    // overlay has stopped doing its job.
+    check('the two draft kinds are told apart',
+      byOrder.get('#27790') !== byOrder.get('#27806'));
+
+    check('storefront and marketplace orders keep their own channels',
+      byOrder.get('#27739') === 'Online Store' &&
+      byOrder.get('04-EEA1P1YY1V') === 'StockX');
+
+    check('every mapped channel is a non-empty string',
+      [...byOrder.values()].every((c) => typeof c === 'string' && c.length > 0));
+  }
+
   check('mobile plus the other ecommerce channels equals the ecommerce total',
     Math.abs(
       rep.channels
