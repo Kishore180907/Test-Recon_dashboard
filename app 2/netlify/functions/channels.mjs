@@ -20,7 +20,7 @@
  * The edge gate has already checked the session cookie before this runs.
  */
 
-import { fetchChannelSales } from '../../lib/shopify.js';
+import { fetchChannelSales, fetchOrderChannels } from '../../lib/shopify.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -43,13 +43,25 @@ export default async (req) => {
   if (start > end) return json(400, { error: 'start must be on or before end' });
 
   try {
-    const report = await fetchChannelSales(start, end);
+    // Both queries hit the same ShopifyQL endpoint, so run them together.
+    const [report, orderChannels] = await Promise.all([
+      fetchChannelSales(start, end),
+      fetchOrderChannels(start, end),
+    ]);
 
     // null means ShopifyQL is unavailable on this plan, not that anything broke.
-    // The page hides the row rather than showing an error.
+    // The page hides the tile rather than showing an error.
     if (!report) return json(200, { available: false });
 
-    return json(200, { available: true, range: { start, end }, ...report });
+    return json(200, {
+      available: true,
+      range: { start, end },
+      ...report,
+      // Order name -> Shopify's own channel. The table uses this to label rows
+      // the Admin API can only call "Draft Orders". Sent as an object because
+      // a Map does not survive JSON.
+      orderChannels: Object.fromEntries(orderChannels),
+    });
   } catch (err) {
     return json(502, { error: String(err?.message || err) });
   }
