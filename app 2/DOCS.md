@@ -41,7 +41,9 @@ Shopify reports a **"Shopify Mobile for iPhone"** sales channel: draft orders st
 | `customAttributes` | `[]` |
 | `tags` | `[]` |
 
-So this number **cannot be derived at any price** — only asked for. Adding `'shopify mobile'` to `ECOMMERCE_APPS` compiles but never matches, because no order carries that app name. The only order-data rule that would catch these 17 is "app is Draft Orders", which is all 18 drafts.
+So this cannot be derived from **order data** — only asked for. Adding `'shopify mobile'` to `ECOMMERCE_APPS` compiles but never matches, because no order carries that app name. The only order-data rule that would catch these 17 is "app is Draft Orders", which is all 18 drafts.
+
+**But ShopifyQL can name the channel per order.** `GROUP BY order_name, sales_channel` returns the channel for every individual order, so `fetchOrderChannels()` builds an order → channel map and the drill-down table uses it: a phone-written draft shows "Shopify Mobile for iPhone · via Draft Orders" while a desk-written one stays "Draft Orders". Where the two sources disagree the Shopify answer is shown with the Admin API's value beneath it, so the difference is visible rather than silently overwritten. The map also feeds the search box and adds a "Sales channel (Shopify)" column to the CSV export.
 
 Those orders therefore sit in the **Draft** tile, and the Shopify Mobile tile is a read-only cross-reference to what Shopify says about them. It is a `<div>`, not a `<button>`: there is no drill-down, because the rows behind it cannot be identified. The tile-click handler is scoped to `.tile[data-bucket]` for exactly this reason — binding it would set `state.bucket` to `undefined` and blank the table.
 
