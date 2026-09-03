@@ -25,7 +25,35 @@ POS is excluded from all three and shown once as a reference figure. It is 90%+ 
 
 The bucket's internal key is still `online` throughout the API, the payload and the daily series — only the label changed. Renaming the key would break every stored payload and both test suites for no gain.
 
-**Reconciling against Shopify Analytics.** The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopify's `net_sales` is gross minus discounts minus returns, *before* shipping and tax, and counts unpaid draft invoices at full value. The two will not match, and the gap is roughly the size of your open drafts. Shopify's own "E-Commerce" channel line is narrower still: it excludes Shop app, StockX and draft orders, which this dashboard counts. Compare the **Non-POS revenue** strip, never a single tile, against **all channels minus POS locations**.
+### The fourth tile: Shopify Mobile
+
+The first three tiles are computed from stored orders. The fourth is not — it is a single figure fetched live from Shopify Analytics via `/api/channels`, and it exists because of a gap in the Admin API.
+
+Shopify reports a **"Shopify Mobile for iPhone"** sales channel: draft orders staff wrote up on a phone. In August 2026 that was **$56,636 across 17 orders**. When the Admin API returns those same orders, every field that could identify the device is empty or generic — verified against order #27790, a $12,500 example:
+
+| Field | Value |
+|---|---|
+| `app.name` | `Draft Orders` (app id `1354745`, same as every draft) |
+| `sourceName` | `shopify_draft_order` |
+| `channelInformation` | `null` |
+| `sourceIdentifier` | `null` |
+| `publication` | `null` |
+| `customAttributes` | `[]` |
+| `tags` | `[]` |
+
+So this number **cannot be derived at any price** — only asked for. Adding `'shopify mobile'` to `ECOMMERCE_APPS` compiles but never matches, because no order carries that app name. The only order-data rule that would catch these 17 is "app is Draft Orders", which is all 18 drafts.
+
+Those orders therefore sit in the **Draft** tile, and the Shopify Mobile tile is a read-only cross-reference to what Shopify says about them. It is a `<div>`, not a `<button>`: there is no drill-down, because the rows behind it cannot be identified. The tile-click handler is scoped to `.tile[data-bucket]` for exactly this reason — binding it would set `state.bucket` to `undefined` and blank the table.
+
+**It is a breakdown, not an addend.** Shopify counts this channel inside its own E-Commerce line ($108,124.65 for August), so the tile's $56,636 is already part of that figure. Never add it to the other three tiles.
+
+### Reconciling against Shopify Analytics
+
+The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopify's `net_sales` is gross minus discounts minus returns, *before* shipping and tax, and counts unpaid draft invoices at full value. The two will not match, and the gap is roughly the size of your open drafts.
+
+Shopify's "E-Commerce" line is Online Store + Shop + StockX + Facebook & Instagram + Marketplace Connect + Shopify Mobile for iPhone. **Draft Orders is its own channel and sits outside it** — including drafts gives $166,241.71 rather than the $108,124.65 the admin reports. `NON_ECOMMERCE_CHANNELS` in `lib/shopify.js` encodes that.
+
+`/api/channels` is deliberately separate from `/api/data`. That endpoint reads storage only and never calls Shopify, which is what guarantees it cannot time out; the channel report does call Shopify, so it loads independently and any failure just hides the tile.
 
 Each order carries first click, last click, traffic source, how it converted, the campaign, and whether Meta was billing for that campaign at the time.
 
