@@ -812,6 +812,9 @@ const state = {
   sortKey: 'createdAt', sortDir: -1,
   paused: false, timer: null, tick: null, nextAt: 0, inflight: false,
   syncing: false, syncIntervalMin: 15, coverage: null,
+  // Order number -> Shopify's own sales channel, from /api/channels. Null until
+  // it answers; the table falls back to the Admin API's channel meanwhile.
+  orderChannels: null,
 };
 
 /* ---------------- formatting ---------------- */
@@ -914,6 +917,15 @@ async function loadMobileTile() {
     if (!res.ok) { tile.hidden = true; return; }
 
     const d = await res.json();
+
+    // Per-order channels. Re-render the table so rows the Admin API could only
+    // call "Draft Orders" pick up Shopify's real channel name.
+    const channels = d.available ? (d.orderChannels || null) : null;
+    if (JSON.stringify(channels) !== JSON.stringify(state.orderChannels)) {
+      state.orderChannels = channels;
+      if (state.data) renderTable();
+    }
+
     const m = d.available && d.mobile;
 
     // No orders on this channel in this window is a real answer, not a failure:
@@ -1226,7 +1238,8 @@ function renderTable() {
   let rows = b.orders;
   if (q) {
     rows = rows.filter((o) =>
-      [o.orderNumber, o.customerName, o.trafficSource, o.channelName, o.creditedTo, o.convertedVia,
+      [o.orderNumber, o.customerName, o.trafficSource, o.channelName,
+       state.orderChannels?.[o.orderNumber], o.creditedTo, o.convertedVia,
        o.campaign, o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage]
         .filter(Boolean).join(' ').toLowerCase().includes(q));
   }
@@ -1259,8 +1272,26 @@ function renderTable() {
         ? `<span class="sub"><span class="jhint">${o.touchpoints} touchpoint${o.touchpoints === 1 ? '' : 's'}</span>${
             o.daysToConversion ? ` · ${o.daysToConversion}d to convert` : ''}</span>` : ''}</td>
       <td>${esc(o.convertedVia || '—')}</td>
-      <td>${esc(o.channelName || '—')}</td>
+      <td>${channelCell(o)}</td>
     </tr>`).join('');
+}
+
+/* Shopify's own sales channel for this order, when we have it.
+ *
+ * The Admin API cannot distinguish a draft written up on a phone from one
+ * written at a desk — both come back as app "Draft Orders". ShopifyQL can, so
+ * /api/channels supplies an order -> channel map and it wins here. Rows the map
+ * does not cover fall back to whatever the order itself reported. */
+function channelCell(o) {
+  const real = state.orderChannels?.[o.orderNumber];
+  const own = o.channelName || '';
+
+  if (!real) return esc(own || '—');
+  if (!own || real.toLowerCase() === own.toLowerCase()) return esc(real);
+
+  // The two disagree — show Shopify's answer, and keep the API's underneath so
+  // the difference is visible rather than silently overwritten.
+  return `${esc(real)}<span class="sub" title="Shopify Admin API reports this order as ${esc(own)}">via ${esc(own)}</span>`;
 }
 
 function clickCell(c) {
@@ -1277,14 +1308,16 @@ function exportCSV() {
   const b = state.data?.buckets[state.bucket];
   if (!b) return;
   const head = ['Order','Placed (ISO)','Placed (store time)','Customer','Net sale','Refunded','First click source','First click landing page',
-    'Last click source','Last click landing page','Traffic source','Converted via','Campaign','Meta ad spend in range','Touchpoints','Channel','Credited to'];
+    'Last click source','Last click landing page','Traffic source','Converted via','Campaign','Meta ad spend in range','Touchpoints',
+    'Sales channel (Shopify)','Channel (Admin API)','Credited to'];
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.map(q).join(',')];
   for (const o of b.orders) {
     lines.push([o.orderNumber, o.createdAt, fmtDT(o.createdAt), o.customerName, o.netSale, o.refunded,
       o.firstClick?.source, o.firstClick?.landingPage, o.lastClick?.source, o.lastClick?.landingPage,
       o.trafficSource, o.convertedVia, o.campaign, o.adBacked ? o.adSpend : '',
-      o.touchpoints, o.channelName, o.creditedTo].map(q).join(','));
+      o.touchpoints, state.orderChannels?.[o.orderNumber] || o.channelName,
+      o.channelName, o.creditedTo].map(q).join(','));
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
   const a = document.createElement('a');
