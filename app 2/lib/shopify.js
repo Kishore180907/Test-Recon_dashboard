@@ -525,6 +525,7 @@ export async function fetchChannelSales(startDate, endDate) {
     `FROM sales SHOW orders, net_sales GROUP BY sales_channel ` +
     `SINCE ${startDate} UNTIL ${endDate}`;
 
+
   let data;
   try {
     data = await gql(SHOPIFYQL_QUERY, { q });
@@ -580,4 +581,62 @@ export async function fetchChannelSales(startDate, endDate) {
       present: mobileRows.length > 0,
     },
   };
+}
+
+/* =============================================================================
+ *  PER-ORDER SALES CHANNEL
+ * -----------------------------------------------------------------------------
+ *  ShopifyQL will group by order_name as well as sales_channel, which means the
+ *  channel IS retrievable per order — including "Shopify Mobile for iPhone",
+ *  which the Admin API reports only as a generic draft order.
+ *
+ *  This is what lets the drill-down table name the real channel for every row
+ *  instead of showing "Draft Orders" for a phone-written sale.
+ *
+ *  net_sales here is Shopify's measure and is NOT used for money in the table —
+ *  the rows keep their own netPayment. Only the channel name is taken.
+ * ========================================================================== */
+
+/** Rows returned per request. Shopify caps a ShopifyQL page well above this. */
+const ORDER_CHANNEL_LIMIT = 1000;
+
+/**
+ * Map of order name (e.g. "#27790") -> Shopify's sales channel for that order.
+ * Returns an empty Map when ShopifyQL is unavailable, so callers can treat a
+ * missing channel as "no override" and fall back to the Admin API's value.
+ */
+export async function fetchOrderChannels(startDate, endDate) {
+  if (process.env.MOCK_DATA === '1') {
+    const { SAMPLE_ORDER_CHANNELS } = await import('../fixtures/sample-channels.js');
+    return SAMPLE_ORDER_CHANNELS();
+  }
+
+  const q =
+    `FROM sales SHOW net_sales GROUP BY order_name, sales_channel ` +
+    `SINCE ${startDate} UNTIL ${endDate} LIMIT ${ORDER_CHANNEL_LIMIT}`;
+
+  let data;
+  try {
+    data = await gql(SHOPIFYQL_QUERY, { q });
+  } catch (err) {
+    console.log(`[channels] per-order lookup unavailable: ${err.message}`);
+    return new Map();
+  }
+
+  const res = data?.shopifyqlQuery;
+  if (res?.parseErrors?.length) {
+    console.log(`[channels] per-order parse error: ${res.parseErrors[0].message}`);
+    return new Map();
+  }
+
+  const rows = res?.tableData?.rows;
+  if (!Array.isArray(rows)) return new Map();
+
+  const map = new Map();
+  for (const r of rows) {
+    const name = String(r.order_name ?? '').trim();
+    const channel = String(r.sales_channel ?? '').trim();
+    if (name && channel) map.set(name, channel);
+  }
+  return map;
 }
