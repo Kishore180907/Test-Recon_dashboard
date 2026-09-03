@@ -25,11 +25,9 @@ POS is excluded from all three and shown once as a reference figure. It is 90%+ 
 
 The bucket's internal key is still `online` throughout the API, the payload and the daily series — only the label changed. Renaming the key would break every stored payload and both test suites for no gain.
 
-### The fourth tile: Shopify Mobile
+### Phone-written orders: how they reach the Ecommerce tile
 
-The first three tiles are computed from stored orders. The fourth is not — it is a single figure fetched live from Shopify Analytics via `/api/channels`, and it exists because of a gap in the Admin API.
-
-Shopify reports a **"Shopify Mobile for iPhone"** sales channel: draft orders staff wrote up on a phone. In August 2026 that was **$56,636 across 17 orders**. When the Admin API returns those same orders, every field that could identify the device is empty or generic — verified against order #27790, a $12,500 example:
+Shopify reports a **"Shopify Mobile for iPhone"** sales channel: orders staff wrote up on a phone. In August 2026 that was **$56,636 across 17 orders**. When the Admin API returns those same orders, every field that could identify the device is empty or generic — verified against order #27790, a $12,500 example:
 
 | Field | Value |
 |---|---|
@@ -41,13 +39,15 @@ Shopify reports a **"Shopify Mobile for iPhone"** sales channel: draft orders st
 | `customAttributes` | `[]` |
 | `tags` | `[]` |
 
-So this cannot be derived from **order data** — only asked for. Adding `'shopify mobile'` to `ECOMMERCE_APPS` compiles but never matches, because no order carries that app name. The only order-data rule that would catch these 17 is "app is Draft Orders", which is all 18 drafts.
+So this cannot be derived from **order data** — only asked for. Adding `'shopify mobile'` to `ECOMMERCE_APPS` alone would never match, because no order carries that app name. The only order-data rule that catches these 17 is "app is Draft Orders", which is all 18 drafts.
 
-**But ShopifyQL can name the channel per order.** `GROUP BY order_name, sales_channel` returns the channel for every individual order, so `fetchOrderChannels()` builds an order → channel map and the drill-down table uses it: a phone-written draft shows "Shopify Mobile for iPhone · via Draft Orders" while a desk-written one stays "Draft Orders". Where the two sources disagree the Shopify answer is shown with the Admin API's value beneath it, so the difference is visible rather than silently overwritten. The map also feeds the search box and adds a "Sales channel (Shopify)" column to the CSV export.
+**But ShopifyQL can name the channel per order.** `GROUP BY order_name, sales_channel` returns the channel for every individual order. `fetchOrderChannels()` builds an order → channel map, `runSync()` refreshes it every tick and caches it in Netlify Blobs, and `buildPayload()` stamps each order with its real `salesChannel` before classification. That is what lets `isMobileAppChannel()` run **before** the draft test in `bucketOf()`: a phone-written order lands in **Ecommerce** (or **Assisted**, if it carries a staff credit note) instead of **Draft**, matching how Shopify counts it.
 
-Those orders therefore sit in the **Draft** tile, and the Shopify Mobile tile is a read-only cross-reference to what Shopify says about them. It is a `<div>`, not a `<button>`: there is no drill-down, because the rows behind it cannot be identified. The tile-click handler is scoped to `.tile[data-bucket]` for exactly this reason — binding it would set `state.bucket` to `undefined` and blank the table.
+The map is cached rather than fetched on demand because `/api/data` never calls Shopify — that is what guarantees it cannot time out. If the refresh fails the map keeps its previous value and bucketing falls back to the Admin API.
 
-**It is a breakdown, not an addend.** Shopify counts this channel inside its own E-Commerce line ($108,124.65 for August), so the tile's $56,636 is already part of that figure. Never add it to the other three tiles.
+**Three tiles, not four.** Shopify Mobile is folded into Ecommerce, not shown separately, because Shopify counts it inside its own E-Commerce line. Every drill-down row names its origin: the Shopify channel on the first line, and a `device` label beneath it — **Shopify iPhone** for mobile-app orders, **Shopify desktop** for drafts written at a desk (`deviceLabel()` in `lib/classify.js`). Both feed the search box and the CSV export.
+
+`/api/channels` remains as a diagnostic endpoint for reconciling against Shopify Analytics directly; the dashboard UI does not call it.
 
 ### Reconciling against Shopify Analytics
 
@@ -55,7 +55,7 @@ The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopif
 
 Shopify's "E-Commerce" line is Online Store + Shop + StockX + Facebook & Instagram + Marketplace Connect + Shopify Mobile for iPhone. **Draft Orders is its own channel and sits outside it** — including drafts gives $166,241.71 rather than the $108,124.65 the admin reports. `NON_ECOMMERCE_CHANNELS` in `lib/shopify.js` encodes that.
 
-`/api/channels` is deliberately separate from `/api/data`. That endpoint reads storage only and never calls Shopify, which is what guarantees it cannot time out; the channel report does call Shopify, so it loads independently and any failure just hides the tile.
+`/api/channels` is deliberately separate from `/api/data`. That endpoint reads storage only and never calls Shopify, which is what guarantees it cannot time out; the channel report does call Shopify, so it is kept off the render path entirely.
 
 Each order carries first click, last click, traffic source, how it converted, the campaign, and whether Meta was billing for that campaign at the time.
 
