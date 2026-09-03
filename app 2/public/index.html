@@ -122,9 +122,8 @@
   .banner.note { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
 
   /* ---------- stat tiles ---------- */
-  /* auto-fit keeps this correct whether the fourth tile is shown or hidden:
-     three across normally, four when the Shopify Mobile tile appears, and it
-     reflows on its own on narrow screens without a second breakpoint. */
+  /* Three buckets, side by side. auto-fit reflows them on narrow screens
+     without needing a second breakpoint. */
   .tiles {
     display: grid; gap: 14px; margin-bottom: 14px;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -162,18 +161,6 @@
   .tile.online   { --accent: var(--series-online); }
   .tile.assisted { --accent: var(--series-assisted); }
   .tile.draft    { --accent: var(--series-draft); }
-
-  /* Reference tile: a reported figure, not a bucket you can open. Reuses the
-     violet already defined for Meta so no fourth hue enters the palette, and
-     drops the pointer affordances so it does not read as clickable. */
-  .tile.mobile {
-    --accent: var(--meta);
-    cursor: default;
-  }
-  .tile.mobile:hover { border-color: var(--border); }
-  .tile-note {
-    margin-top: 12px; font-size: 11.5px; color: var(--text-muted);
-  }
 
   /* ---------- totals strip ---------- */
   .strip {
@@ -505,21 +492,6 @@
       <div class="sharebar"><i data-share style="width:0%"></i></div>
       <div class="sharepct" data-sharetext>—</div>
     </button>
-
-    <!-- Fourth tile. NOT a bucket, and deliberately a div rather than a button:
-         there are no orders behind it to drill into. Shopify reports this
-         channel, but the Admin API does not expose the device on the underlying
-         orders (verified: app, sourceName, channelInformation, sourceIdentifier,
-         publication and customAttributes are all empty or generic), so the
-         figure is fetched from Shopify Analytics and the rows cannot be listed.
-         Hidden until /api/channels answers. -->
-    <div class="tile mobile" id="tile-mobile" hidden>
-      <div class="tile-head"><span class="swatch"></span><span class="tile-name">SHOPIFY MOBILE</span>
-        <span class="tile-rule">Shopify Analytics</span></div>
-      <div class="hero" id="m-hero">—</div>
-      <div class="tile-sub"><span><b id="m-count">—</b> orders</span><span>AOV <b id="m-aov">—</b></span></div>
-      <div class="tile-note"><span id="m-name">—</span> · net sales · these orders sit in your Draft tile</div>
-    </div>
   </div>
 
   <div class="strip">
@@ -812,9 +784,6 @@ const state = {
   sortKey: 'createdAt', sortDir: -1,
   paused: false, timer: null, tick: null, nextAt: 0, inflight: false,
   syncing: false, syncIntervalMin: 15, coverage: null,
-  // Order number -> Shopify's own sales channel, from /api/channels. Null until
-  // it answers; the table falls back to the Admin API's channel meanwhile.
-  orderChannels: null,
 };
 
 /* ---------------- formatting ---------------- */
@@ -894,53 +863,12 @@ async function load() {
     hideBanner();
     render();
     setLive();
-    loadMobileTile(); // fire-and-forget: never blocks or breaks the dashboard
   } catch (err) {
     setLive('err');
     showBanner(`Couldn't load the snapshot: ${err.message}. Showing the last good data; retrying automatically.`);
   } finally {
     state.inflight = false;
     state.nextAt = Date.now() + POLL_MS;
-  }
-}
-
-/* ---------------- Shopify Mobile tile ----------------
- * Loaded separately from /api/data, which reads storage only and never calls
- * Shopify — that is what guarantees it cannot time out. This one does call
- * Shopify, so it is fire-and-forget: any failure just hides the tile and the
- * dashboard is unaffected. */
-async function loadMobileTile() {
-  const tile = $('#tile-mobile');
-  try {
-    const q = new URLSearchParams({ start: state.start, end: state.end });
-    const res = await fetch(`/api/channels?${q}`, { credentials: 'include' });
-    if (!res.ok) { tile.hidden = true; return; }
-
-    const d = await res.json();
-
-    // Per-order channels. Re-render the table so rows the Admin API could only
-    // call "Draft Orders" pick up Shopify's real channel name.
-    const channels = d.available ? (d.orderChannels || null) : null;
-    if (JSON.stringify(channels) !== JSON.stringify(state.orderChannels)) {
-      state.orderChannels = channels;
-      if (state.data) renderTable();
-    }
-
-    const m = d.available && d.mobile;
-
-    // No orders on this channel in this window is a real answer, not a failure:
-    // showing a $0 tile would be noise, so it hides.
-    if (!m || !m.present || m.orders === 0) { tile.hidden = true; return; }
-
-    // Shopify's own name for the channel, so the tile stays honest if it ever
-    // changes (e.g. an Android variant appearing).
-    $('#m-name').textContent = m.label;
-    heroMoney($('#m-hero'), m.netSales);
-    $('#m-count').textContent = int(m.orders);
-    $('#m-aov').textContent = money(m.netSales / m.orders);
-    tile.hidden = false;
-  } catch {
-    tile.hidden = true;
   }
 }
 
@@ -1239,7 +1167,7 @@ function renderTable() {
   if (q) {
     rows = rows.filter((o) =>
       [o.orderNumber, o.customerName, o.trafficSource, o.channelName,
-       state.orderChannels?.[o.orderNumber], o.creditedTo, o.convertedVia,
+       o.salesChannel, o.device, o.creditedTo, o.convertedVia,
        o.campaign, o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage]
         .filter(Boolean).join(' ').toLowerCase().includes(q));
   }
@@ -1276,22 +1204,28 @@ function renderTable() {
     </tr>`).join('');
 }
 
-/* Shopify's own sales channel for this order, when we have it.
+/* Shopify's own sales channel for this order, plus the device it was written
+ * on when that is meaningful.
  *
- * The Admin API cannot distinguish a draft written up on a phone from one
- * written at a desk — both come back as app "Draft Orders". ShopifyQL can, so
- * /api/channels supplies an order -> channel map and it wins here. Rows the map
- * does not cover fall back to whatever the order itself reported. */
+ * The Admin API cannot distinguish a draft written up in the mobile app from
+ * one written at a desk — both come back as app "Draft Orders". Shopify
+ * Analytics can, so the sync caches an order -> channel map and the payload
+ * carries `salesChannel` and `device` per row. Rows synced before that map
+ * existed have neither and fall back to the Admin API's channel. */
 function channelCell(o) {
-  const real = state.orderChannels?.[o.orderNumber];
+  const real = o.salesChannel || '';
   const own = o.channelName || '';
+  const head = real || own || '—';
 
-  if (!real) return esc(own || '—');
-  if (!own || real.toLowerCase() === own.toLowerCase()) return esc(real);
+  const sub = o.device
+    ? `<span class="sub">${esc(o.device)}</span>`
+    // No device to report, but the two sources disagree — show what the Admin
+    // API said rather than silently replacing it.
+    : (real && own && real.toLowerCase() !== own.toLowerCase()
+        ? `<span class="sub" title="Shopify Admin API reports this order as ${esc(own)}">via ${esc(own)}</span>`
+        : '');
 
-  // The two disagree — show Shopify's answer, and keep the API's underneath so
-  // the difference is visible rather than silently overwritten.
-  return `${esc(real)}<span class="sub" title="Shopify Admin API reports this order as ${esc(own)}">via ${esc(own)}</span>`;
+  return `${esc(head)}${sub}`;
 }
 
 function clickCell(c) {
@@ -1309,14 +1243,14 @@ function exportCSV() {
   if (!b) return;
   const head = ['Order','Placed (ISO)','Placed (store time)','Customer','Net sale','Refunded','First click source','First click landing page',
     'Last click source','Last click landing page','Traffic source','Converted via','Campaign','Meta ad spend in range','Touchpoints',
-    'Sales channel (Shopify)','Channel (Admin API)','Credited to'];
+    'Sales channel (Shopify)','Written on','Channel (Admin API)','Credited to'];
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.map(q).join(',')];
   for (const o of b.orders) {
     lines.push([o.orderNumber, o.createdAt, fmtDT(o.createdAt), o.customerName, o.netSale, o.refunded,
       o.firstClick?.source, o.firstClick?.landingPage, o.lastClick?.source, o.lastClick?.landingPage,
       o.trafficSource, o.convertedVia, o.campaign, o.adBacked ? o.adSpend : '',
-      o.touchpoints, state.orderChannels?.[o.orderNumber] || o.channelName,
+      o.touchpoints, o.salesChannel || o.channelName, o.device || '',
       o.channelName, o.creditedTo].map(q).join(','));
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
@@ -1328,9 +1262,9 @@ function exportCSV() {
 }
 
 /* ---------------- events ---------------- */
-/* [data-bucket], not .tile: the Shopify Mobile tile is a reference figure with
- * no orders behind it. Binding it here would set state.bucket to undefined and
- * blank the drill-down table. */
+/* [data-bucket], not .tile: only tiles that name a bucket open the drill-down.
+ * Binding a tile without one would set state.bucket to undefined and blank the
+ * table. */
 $$('#tiles .tile[data-bucket]').forEach((t) => t.addEventListener('click', () => {
   state.bucket = t.dataset.bucket;
   $$('#tiles .tile[data-bucket]').forEach((x) => x.setAttribute('aria-selected', String(x === t)));
