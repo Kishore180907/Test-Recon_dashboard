@@ -3,7 +3,7 @@
  *  Runs from the cron function and from the dashboard's "Refresh now" button.
  * ========================================================================== */
 
-import { fetchOrdersInRange } from './shopify.js';
+import { fetchOrdersInRange, fetchOrderChannels } from './shopify.js';
 import { fetchCampaignInsights, metaConfigured, metaCredentialMode } from './meta.js';
 import { localDayToUTC, todayLocal, daysAgoLocal } from './timezone.js';
 import {
@@ -12,6 +12,7 @@ import {
   pruneBefore,
   getWatermark,
   setWatermark,
+  setOrderChannels,
   getBackfill,
   acquireLock,
   releaseLock,
@@ -113,9 +114,29 @@ export async function runSync({ by = 'cron', maxPages = 40 } = {}) {
     // pulled once, which is what lets later ticks fetch only the tail.
     if (meta.ok && !meta.seededAt) meta.seededAt = wm?.meta?.seededAt;
 
+    /* Refresh the order -> sales channel map for the whole window.
+     *
+     * This is what lets the Ecommerce tile include mobile-app drafts: the Admin
+     * API reports them as ordinary drafts, and only Shopify Analytics knows the
+     * device. Cached here so /api/data can stay a pure storage read.
+     *
+     * A failure is not fatal — the map simply keeps its previous value and the
+     * dashboard falls back to Admin-API bucketing. */
+    let channels = null;
+    try {
+      const map = await fetchOrderChannels(start, end);
+      if (map.size) {
+        channels = { count: map.size, at: Date.now() };
+        await setOrderChannels(Object.fromEntries(map));
+      }
+    } catch (err) {
+      console.log(`[sync] channel map skipped: ${err.message}`);
+    }
+
     const dropped = await pruneBefore(start);
 
     const watermark = {
+      channels,
       lastSyncAt: Date.now(),
       lastSyncISO: new Date().toISOString(),
       by,

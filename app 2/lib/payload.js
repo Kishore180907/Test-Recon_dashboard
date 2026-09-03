@@ -4,7 +4,7 @@
  *  fast enough to never brush a function timeout.
  * ========================================================================== */
 
-import { annotate } from './classify.js';
+import { annotate, deviceLabel } from './classify.js';
 import { campaignKey } from './meta.js';
 import { localDateOf } from './timezone.js';
 
@@ -19,6 +19,11 @@ export function buildPayload({
   start,
   end,
   exclusive = true,
+  // Order name -> Shopify's own sales channel, from Shopify Analytics. The
+  // Admin API cannot distinguish a draft written in the mobile app from one
+  // written at a desk, so this is what puts mobile-app orders in Ecommerce
+  // rather than Draft. Empty is safe: orders keep their Admin-API bucket.
+  orderChannels = null,
   meta = {},
 }) {
   const buckets = {
@@ -31,10 +36,21 @@ export function buildPayload({
   // loop so every order can be stamped with whether its campaign is one of them.
   const adSpendByKey = rollUpMeta(metaInsights);
 
+  // Accepts a Map or a plain object, so callers can pass either the lib's Map
+  // or the JSON the endpoint sends.
+  const channelOf = (name) => {
+    if (!orderChannels || !name) return '';
+    return (orderChannels instanceof Map
+      ? orderChannels.get(name)
+      : orderChannels[name]) || '';
+  };
+
   const all = [];
   for (const raw of orders) {
     if (raw.test) continue;
-    const o = annotate(raw, { exclusive });
+    // Stamped before annotate() so bucketOf() can see it.
+    const withChannel = { ...raw, salesChannel: channelOf(raw.orderNumber) };
+    const o = annotate(withChannel, { exclusive });
     if (o.bucket === 'pos') continue; // POS never reaches storage, but be safe
     all.push(o);
     const b = buckets[o.bucket];
@@ -244,6 +260,10 @@ function slim(o, adSpendByKey = new Map()) {
     financialStatus: o.financialStatus,
     cancelled: Boolean(o.cancelledAt),
     channelName: o.channelName || o.appName || o.sourceName,
+    // Shopify Analytics' channel for this exact order, and the device it names.
+    // Both null when the channel map was unavailable.
+    salesChannel: o.salesChannel || null,
+    device: deviceLabel(o),
     isAssisted: o.isAssisted,
     isDraft: o.isDraft,
     creditedTo: o.creditedTo,

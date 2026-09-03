@@ -198,6 +198,15 @@ export async function pruneBefore(oldestDate) {
 
 /* ---- metadata ------------------------------------------------------------- */
 
+/* Order name -> Shopify's sales channel, cached at sync time.
+ *
+ * Kept in storage rather than fetched on read because /api/data must never call
+ * Shopify — that is what guarantees it cannot time out. The map is what puts
+ * mobile-app drafts in the Ecommerce bucket, so the tiles need it on every read.
+ * Stored as one object; a 90-day window is a few thousand short strings. */
+export const getOrderChannels = () => getJSON(META, 'orderChannels', { strong: true });
+export const setOrderChannels = (v) => setJSON(META, 'orderChannels', v);
+
 export const getWatermark = () => getJSON(META, 'watermark', { strong: true });
 export const setWatermark = (v) => setJSON(META, 'watermark', v);
 export const getBackfill = () => getJSON(META, 'backfill', { strong: true });

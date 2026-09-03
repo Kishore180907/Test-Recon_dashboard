@@ -52,6 +52,34 @@ export const ECOMMERCE_APPS = [
   'shopify mobile',
 ];
 
+/* -----------------------------------------------------------------------------
+ * 1c. Which device wrote the order
+ * -----------------------------------------------------------------------------
+ * Shopify names one device channel — "Shopify Mobile for iPhone" — and nothing
+ * for the admin on a computer. So the honest split is:
+ *
+ *   salesChannel starts with "Shopify Mobile"  ->  the mobile app
+ *   a draft order with any other channel       ->  Shopify admin (desktop)
+ *
+ * `salesChannel` comes from Shopify Analytics, not the order payload: the Admin
+ * API reports both kinds as app 'Draft Orders'. Orders synced before the channel
+ * map existed simply have no salesChannel and fall through as "not mobile",
+ * which is the safe direction — they keep their old bucket.
+ * ---------------------------------------------------------------------------*/
+export function isMobileAppChannel(o) {
+  return /^shopify mobile/i.test(String(o?.salesChannel ?? '').trim());
+}
+
+/** Human label for the drill-down's device column. Null when not applicable. */
+export function deviceLabel(o) {
+  if (isPOS(o)) return null;
+  if (isMobileAppChannel(o)) return 'Shopify iPhone';
+  // Only drafts are ambiguous enough to be worth labelling; a storefront order
+  // was placed by the customer, not written up by staff on any device.
+  if (isDraft(o)) return 'Shopify desktop';
+  return null;
+}
+
 export function isEcommerceChannel(o) {
   if (isPOS(o)) return false;
   const app = (o.appName || '').toLowerCase().trim();
@@ -206,6 +234,17 @@ export function isMarketingTouched(o) {
  * ========================================================================== */
 export function bucketOf(o, { exclusive = true } = {}) {
   if (isPOS(o)) return 'pos'; // excluded from all three panels
+
+  /* A draft written up in the Shopify mobile app is an ecommerce sale, not a
+   * desk-written invoice. The Admin API cannot tell the two apart — both report
+   * app 'Draft Orders' — so `salesChannel` is stamped onto the order from
+   * Shopify Analytics before bucketing (see lib/shopify.js fetchOrderChannels).
+   *
+   * This runs BEFORE the draft test on purpose: without it these orders fall
+   * into Draft and the Ecommerce tile understates by the size of that channel
+   * ($56,636 across 17 orders in August 2026). */
+  if (isMobileAppChannel(o)) return isAssisted(o) ? 'assisted' : 'online';
+
   const draft = isDraft(o);
 
   if (!exclusive) return draft ? 'draft' : 'online';
@@ -227,6 +266,7 @@ export function annotate(o, { exclusive = true } = {}) {
     isPOS: pos,
     isDraft: draft,
     isAssisted: assisted,
+    fromMobileApp: isMobileAppChannel(o),
     marketingTouched: isMarketingTouched(o),
     creditedTo: creditedTo(o),
     bucket: bucketOf(o, { exclusive }),
