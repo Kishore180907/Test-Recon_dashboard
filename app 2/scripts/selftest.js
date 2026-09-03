@@ -21,7 +21,7 @@ const {
   setWatermark, getWatermark, acquireLock, releaseLock,
 } = await import('../lib/repo.js');
 const { buildPayload } = await import('../lib/payload.js');
-const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel } = await import('../lib/classify.js');
+const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel } = await import('../lib/classify.js');
 const { localDateOf } = await import('../lib/timezone.js');
 const auth = await import('../lib/auth.js');
 
@@ -112,6 +112,62 @@ const metaInsights = await readMetaInsights(range.start, range.end);
 
 const ex = buildPayload({ orders, posTotals, metaInsights, ...range, exclusive: true });
 const ov = buildPayload({ orders, posTotals, metaInsights, ...range, exclusive: false });
+
+/* ---- the channel map moves money between tiles -----------------------------
+ * End-to-end proof that the stamp works through buildPayload, not just in
+ * bucketOf: the same orders, with and without the map, must shift revenue from
+ * Draft into Ecommerce and leave the non-POS total untouched.
+ * -------------------------------------------------------------------------- */
+{
+  const { SAMPLE_ORDER_CHANNELS } = await import('../fixtures/sample-channels.js');
+  const withMap = buildPayload({
+    orders, posTotals, metaInsights, ...range, exclusive: true,
+    orderChannels: SAMPLE_ORDER_CHANNELS(),
+  });
+
+  /* Revenue leaves Draft. Where it lands depends on the order: a staff credit
+   * note still wins, so a phone-written order credited to someone goes to
+   * Assisted, not Ecommerce. In this fixture every mobile draft is credited,
+   * which is representative — that is how the store actually works. */
+  const leftDraft = ex.buckets.draft.revenue - withMap.buckets.draft.revenue;
+  check('the channel map moves revenue out of Draft', leftDraft > 0, `−${leftDraft.toFixed(2)}`);
+
+  const gained =
+    (withMap.buckets.online.revenue - ex.buckets.online.revenue) +
+    (withMap.buckets.assisted.revenue - ex.buckets.assisted.revenue);
+  check('every dollar that leaves Draft lands in Ecommerce or Assisted',
+    near(gained, leftDraft), `${gained.toFixed(2)} vs ${leftDraft.toFixed(2)}`);
+
+  check('the non-POS total is unchanged by reclassification',
+    near(ex.totals.nonPosRevenue, withMap.totals.nonPosRevenue));
+  check('order counts move too',
+    withMap.buckets.draft.orderCount < ex.buckets.draft.orderCount);
+
+  // An uncredited mobile-app order must reach Ecommerce, not Assisted — the
+  // fixture is all credited, so this is checked directly.
+  check('an uncredited mobile-app draft reaches Ecommerce',
+    bucketOf({ sourceName: 'shopify_draft_order', appName: 'Draft Orders', note: '',
+      salesChannel: 'Shopify Mobile for iPhone',
+      firstClickSource: 'Direct', lastClickSource: 'Direct' }) === 'online');
+
+  const all = ['online', 'assisted', 'draft'].flatMap((k) => withMap.buckets[k].orders);
+  const phones = all.filter((o) => o.device === 'Shopify iPhone');
+  check('mobile-app rows carry the device label', phones.length > 0, `${phones.length} rows`);
+  check('every mobile-app row is out of the Draft bucket',
+    withMap.buckets.draft.orders.every((o) => o.device !== 'Shopify iPhone'));
+  check('rows carry Shopify’s channel name',
+    phones.every((o) => /^shopify mobile/i.test(o.salesChannel || '')));
+
+  /* Without the map no order can be identified as phone-written, so nothing is
+   * labelled "Shopify iPhone" and nothing moves out of Draft. Desk drafts still
+   * read "Shopify desktop" — that label comes from being a draft at all, which
+   * the Admin API does know. */
+  const bare = ['online', 'assisted', 'draft'].flatMap((k) => ex.buckets[k].orders);
+  check('no map means nothing is labelled as phone-written',
+    bare.every((o) => o.device !== 'Shopify iPhone'));
+  check('no map still labels desk-written drafts',
+    ex.buckets.draft.orders.every((o) => o.device === 'Shopify desktop'));
+}
 
 /* ---- the Shopify/Meta join ------------------------------------------------ */
 {
@@ -265,6 +321,41 @@ check('the abbreviated "Cred:" note counts as a staff credit',
 check('a draft order with a retail location is not treated as POS',
   !isPOS({ sourceName: 'shopify_draft_order', appName: 'Draft Orders',
     retailLocationName: 'Kenwood Towne Centre' }));
+
+/* ---- mobile-app drafts belong to Ecommerce -------------------------------
+ * The Admin API reports these identically to desk-written drafts. Only the
+ * salesChannel stamp (from Shopify Analytics) tells them apart, and it must
+ * move them out of Draft and into Ecommerce.
+ * -------------------------------------------------------------------------- */
+{
+  const mobileDraft = {
+    sourceName: 'shopify_draft_order', appName: 'Draft Orders', note: '',
+    salesChannel: 'Shopify Mobile for iPhone',
+    firstClickSource: 'Direct', lastClickSource: 'Direct',
+  };
+  const deskDraft = { ...mobileDraft, salesChannel: 'Draft Orders' };
+  const unknownDraft = { ...mobileDraft, salesChannel: '' };
+
+  check('a mobile-app draft buckets to Ecommerce', bucketOf(mobileDraft) === 'online');
+  check('a desk-written draft stays in Draft', bucketOf(deskDraft) === 'draft');
+  check('a draft with no channel stamp keeps its old bucket',
+    bucketOf(unknownDraft) === 'draft');
+
+  check('the device label names the phone', deviceLabel(mobileDraft) === 'Shopify iPhone');
+  check('the device label names the desktop', deviceLabel(deskDraft) === 'Shopify desktop');
+  check('a storefront order gets no device label',
+    deviceLabel({ sourceName: 'web', appName: 'Online Store', salesChannel: 'Online Store' }) === null);
+  check('a POS order gets no device label',
+    deviceLabel({ sourceName: 'pos', appName: 'Point of Sale', channelHandle: 'pos' }) === null);
+
+  // A credit note still wins: a phone-written order someone is credited for is
+  // an assisted sale, not a plain ecommerce one.
+  check('a credited mobile-app draft still goes to Assisted',
+    bucketOf({ ...mobileDraft, note: 'Credit: JR' }) === 'assisted');
+
+  check('a mobile-app order is never POS',
+    bucketOf({ ...mobileDraft, salesChannel: 'Shopify Mobile for Android' }) === 'online');
+}
 
 /* ---- ecommerce channel membership -----------------------------------------
  * Shapes below are copied from live August orders. The app-installed channels

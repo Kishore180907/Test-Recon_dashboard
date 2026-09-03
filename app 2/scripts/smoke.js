@@ -58,6 +58,8 @@ check('payload carries a sync timestamp for the age label', Boolean(payload.sync
 check('drill-down rows carry the attribution columns',
   b.online.orders.every((o) =>
     'orderNumber' in o && 'netSale' in o && 'firstClick' in o && 'lastClick' in o && 'trafficSource' in o));
+check('drill-down rows carry the sales channel and device',
+  b.online.orders.every((o) => 'salesChannel' in o && 'device' in o));
 
 /* ---- 3b. the Meta Ads join over HTTP -------------------------------------- */
 check('the sync pulls Meta insights alongside orders',
