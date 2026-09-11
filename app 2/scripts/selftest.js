@@ -140,6 +140,30 @@ const ov = buildPayload({ orders, posTotals, metaInsights, ...range, exclusive: 
 
   check('the non-POS total is unchanged by reclassification',
     near(ex.totals.nonPosRevenue, withMap.totals.nonPosRevenue));
+
+  /* The eBay fixture order, end to end. #27420 is a draft with both touchpoints
+   * Direct, so without the eBay override it sits in Draft — the draft
+   * attribution rule decides it before the credit note is ever consulted. With
+   * the channel map stamping 'eBay' onto it, it must be in Ecommerce instead.
+   * Its credit note is what proves the override is unconditional: the note
+   * would otherwise make this an Assisted sale the moment any marketing touch
+   * appeared in its journey. */
+  {
+    const find = (p) => {
+      for (const k of ['online', 'assisted', 'draft']) {
+        if (p.buckets[k].orders.some((o) => o.orderNumber === '#27420')) return k;
+      }
+      return null;
+    };
+    check('without the map the eBay order falls into Draft',
+      find(ex) === 'draft', String(find(ex)));
+    check('with the map the eBay order is Ecommerce',
+      find(withMap) === 'online', String(find(withMap)));
+
+    const row = withMap.buckets.online.orders.find((o) => o.orderNumber === '#27420');
+    check('the eBay row names its channel', row?.salesChannel === 'eBay', String(row?.salesChannel));
+    check('the eBay row carries no device label', row?.device == null, String(row?.device));
+  }
   check('order counts move too',
     withMap.buckets.draft.orderCount < ex.buckets.draft.orderCount);
 
@@ -355,6 +379,66 @@ check('a draft order with a retail location is not treated as POS',
 
   check('a mobile-app order is never POS',
     bucketOf({ ...mobileDraft, salesChannel: 'Shopify Mobile for Android' }) === 'online');
+}
+
+/* ---- eBay is Ecommerce unconditionally ------------------------------------
+ * Store rule: an eBay sale is an ecommerce sale regardless of anything else.
+ * Stricter than the mobile-app rule directly above, which yields to a credit
+ * note. The only thing that outranks eBay is POS.
+ *
+ * eBay was not selling through this store when the rule was written, so these
+ * cover every field the channel could plausibly arrive in.
+ * -------------------------------------------------------------------------- */
+{
+  const base = { note: '', firstClickSource: 'Direct', lastClickSource: 'Direct' };
+  const viaChannel = { ...base, sourceName: '987654321', salesChannel: 'eBay' };
+
+  check('an eBay order buckets to Ecommerce', bucketOf(viaChannel) === 'online');
+
+  // The two that matter: neither signal may pull eBay out of Ecommerce.
+  check('a credited eBay order stays in Ecommerce',
+    bucketOf({ ...viaChannel, note: 'Credit to Erik' }) === 'online');
+  check('an eBay order recorded as a draft stays in Ecommerce',
+    bucketOf({ ...viaChannel, sourceName: 'shopify_draft_order', appName: 'Draft Orders' }) === 'online');
+  check('a marketing-touched eBay draft stays in Ecommerce',
+    bucketOf({ ...viaChannel, sourceName: 'shopify_draft_order', appName: 'Draft Orders',
+      lastClickSource: 'facebook / paid_social' }) === 'online');
+  check('a credited eBay draft stays in Ecommerce',
+    bucketOf({ ...viaChannel, sourceName: 'shopify_draft_order', appName: 'Draft Orders',
+      note: 'Credit: JR' }) === 'online');
+
+  // Whichever field carries it, the rule fires.
+  for (const [field, value] of [
+    ['salesChannel', 'eBay'],
+    ['channelName', 'eBay Marketplace'],
+    ['appName', 'Marketplace Connect - eBay'],
+    ['channelHandle', 'ebay'],
+    ['sourceName', 'ebay'],
+  ]) {
+    check(`eBay is recognised via ${field}`,
+      bucketOf({ ...base, sourceName: 'web', [field]: value }) === 'online',
+      `${value}`);
+  }
+
+  check('eBay is matched case-insensitively',
+    bucketOf({ ...base, salesChannel: 'EBAY' }) === 'online');
+
+  // Word-boundary matched, so an unrelated substring must not trigger it. Such
+  // an order falls through to the ordinary rules — a credit note makes it
+  // Assisted, which is what proves eBay's override did not fire.
+  check('a lookalike substring does not count as eBay',
+    bucketOf({ ...base, appName: 'Storebayside', note: 'Credit to Erik' }) === 'assisted');
+
+  // POS still outranks eBay. Nothing should ever produce this combination, but
+  // the ordering is worth pinning so a future edit cannot silently invert it.
+  check('POS still outranks eBay',
+    bucketOf({ ...base, sourceName: 'pos', appName: 'Point of Sale',
+      channelHandle: 'pos', salesChannel: 'eBay' }) === 'pos');
+
+  check('an eBay order gets no device label',
+    deviceLabel({ ...viaChannel, sourceName: 'shopify_draft_order', appName: 'Draft Orders' }) === null);
+
+  check('eBay counts as an ecommerce channel', isEcommerceChannel({ appName: 'eBay' }));
 }
 
 /* ---- ecommerce channel membership -----------------------------------------
