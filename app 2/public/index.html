@@ -4,48 +4,128 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-<title>CLB XXIII — Order Mix</title>
+<title>CLB XXIII — Multi Attribution · Source of Truth</title>
 <style>
+  /* ===========================================================================
+     PALETTE — white blended with green, muted and faded throughout.
+     ---------------------------------------------------------------------------
+     Everything sits on a soft white-to-mint ground, and every panel is frosted
+     glass over it: translucent white, blurred backdrop, hairline edge.
+     `--surface-1` is therefore a COLOUR WITH ALPHA, not an opaque fill. Anything
+     that must not show the page through it (a sticky table header scrolling over
+     rows) uses `--surface-solid` instead.
+
+     The series colours are deliberately desaturated. They read as a family of
+     soft naturals rather than the usual saturated chart primaries, and they stay
+     distinguishable from one another at a glance:
+
+       Ecommerce  soft green   — the house colour, the biggest bucket
+       Assisted   faded clay   — warm, so it separates from the two cool hues
+       Draft      dusty teal   — cool but clearly not the Ecommerce green
+       Meta       pale iris    — a different system's numbers, never store data
+     ========================================================================= */
   :root {
-    color-scheme: dark;
-    --surface-1: #1a1a19;
-    --plane:      #0d0d0d;
-    --text-primary:   #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted:     #898781;
-    --grid:     #2c2c2a;
-    --baseline: #383835;
-    --border:   rgba(255,255,255,0.10);
-    --wash:     rgba(255,255,255,0.045);
-
-    --series-online:   #3987e5;
-    --series-assisted: #d95926;
-    --series-draft:    #199e70;
-
-    /* Meta's own column. Deliberately not the Online blue — these numbers come
-       from a different system and should never be mistaken for store data. */
-    --meta: #9a7bf2;
-
-    --good: #0ca30c;
-    --warning: #fab219;
-    --critical: #d03b3b;
-  }
-  :root[data-theme="light"] {
     color-scheme: light;
-    --surface-1: #fcfcfb;
-    --plane:      #f9f9f7;
-    --text-primary:   #0b0b0b;
-    --text-secondary: #52514e;
-    --text-muted:     #898781;
-    --grid:     #e1e0d9;
-    --baseline: #c3c2b7;
-    --border:   rgba(11,11,11,0.10);
-    --wash:     rgba(11,11,11,0.04);
 
-    --series-online:   #2a78d6;
-    --series-assisted: #eb6834;
-    --series-draft:    #1baf7a;
-    --meta:            #6b4bd0;
+    /* Frosted panel fill + the opaque version for stacking contexts. */
+    --surface-1:     rgba(255,255,255,0.62);
+    --surface-2:     rgba(255,255,255,0.78);
+    --surface-solid: #f3f8f4;
+    --glass-edge:    rgba(255,255,255,0.75);
+    --glass-blur:    saturate(150%) blur(18px);
+
+    --plane:      #e7f0e9;
+    --plane-tint: #c9e0d1;
+
+    --text-primary:   #1b2a22;
+    --text-secondary: #53675b;
+    --text-muted:     #87988e;
+
+    --grid:     rgba(27,42,34,0.07);
+    --baseline: rgba(27,42,34,0.16);
+    --border:   rgba(27,42,34,0.10);
+    --wash:     rgba(122,158,133,0.13);
+
+    --series-online:   #7aa888;
+    --series-assisted: #c69a80;
+    --series-draft:    #8fadb4;
+    --meta:            #a49ec4;
+
+    --good:     #6f9f7c;
+    --warning:  #d3ae70;
+    --critical: #c08484;
+
+    --glow-a: rgba(122,168,136,0.16);
+    --glow-b: rgba(143,173,180,0.13);
+    --glow-c: rgba(198,154,128,0.09);
+
+    --shadow-soft: 0 1px 2px rgba(27,42,34,.04), 0 8px 24px rgba(27,42,34,.06);
+    --shadow-lift: 0 2px 6px rgba(27,42,34,.06), 0 18px 44px rgba(27,42,34,.10);
+  }
+
+  /* The dark counterpart keeps the same green cast and the same softness, so
+     toggling changes the light level and nothing about the character. */
+  /* ---------------------------------------------------------------------------
+     DARK — the default, matched to the reference design.
+
+     Deep desaturated charcoal-navy ground, cards that are barely-there lifts of
+     white over it, hairline edges, and soft coloured light pooling inside the
+     panels rather than sitting on them. Nothing is saturated; the accents are
+     a cool blue, a teal-green and a warm amber, all pulled well back.
+
+     Two surface levels, as in the reference: `--surface-1` is a panel on the
+     ground, `--surface-2` a tile nested inside a panel.
+     ------------------------------------------------------------------------ */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --surface-1:     rgba(255,255,255,0.042);
+    --surface-2:     rgba(255,255,255,0.065);
+    --surface-solid: #23282f;
+    --glass-edge:    rgba(255,255,255,0.085);
+
+    --plane:      #191c21;
+    --plane-tint: #21262d;
+
+    --text-primary:   #edf1f6;
+    --text-secondary: #9aa6b3;
+    --text-muted:     #6c7884;
+
+    --grid:     rgba(237,241,246,0.055);
+    --baseline: rgba(237,241,246,0.14);
+    --border:   rgba(237,241,246,0.075);
+    --wash:     rgba(237,241,246,0.055);
+
+    /* Cool blue, teal-green, warm amber — the reference's own trio. */
+    --series-online:   #6fa8dc;
+    --series-assisted: #d9ac74;
+    --series-draft:    #62b3a4;
+    --meta:            #a79ad4;
+
+    --good:     #62b3a4;
+    --warning:  #d9ac74;
+    --critical: #cf8b8b;
+
+    /* The atmospheric pools that bleed through the glass. */
+    --glow-a: rgba(111,168,220,0.20);
+    --glow-b: rgba(98,179,164,0.16);
+    --glow-c: rgba(217,172,116,0.10);
+
+    --shadow-soft: 0 1px 2px rgba(0,0,0,.30), 0 10px 28px rgba(0,0,0,.30);
+    --shadow-lift: 0 2px 8px rgba(0,0,0,.36), 0 22px 52px rgba(0,0,0,.46);
+  }
+
+  /* One rule every panel opts into, so the glass stays consistent and there is
+     a single place to tune it. Browsers without backdrop-filter (older Firefox
+     with the flag off) simply get the translucent fill, which still reads fine
+     against the soft ground — hence no @supports fallback colour. */
+  .glass {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-soft);
   }
 
   * { box-sizing: border-box; }
@@ -55,6 +135,22 @@
     color: var(--text-primary);
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  /* The ground the glass sits on. Two very soft green pools, fixed so they do
+     not slide under the panels while scrolling — that movement is what makes a
+     blurred backdrop look cheap. */
+  /* The ground the glass sits on. Soft pools of colour, fixed so they do not
+     slide under the panels while scrolling — that movement is what makes a
+     blurred backdrop look cheap. This is what the panels actually blur. */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(58rem 38rem at 8% -8%,  var(--glow-a), transparent 62%),
+      radial-gradient(46rem 32rem at 96% 4%,  var(--glow-b), transparent 58%),
+      radial-gradient(52rem 36rem at 62% 108%, var(--glow-c), transparent 60%),
+      linear-gradient(168deg, transparent 30%, var(--plane-tint));
   }
   a { color: inherit; }
 
@@ -65,7 +161,19 @@
     display: flex; align-items: flex-end; justify-content: space-between;
     gap: 20px; flex-wrap: wrap; margin-bottom: 18px;
   }
-  .brand h1 { font-size: 19px; font-weight: 640; margin: 0; letter-spacing: -0.01em; }
+  .brand h1 {
+    font-size: 19px; font-weight: 640; margin: 0; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  }
+  /* "Source of Truth" is a qualifier, not half the name — it rides at label
+     size beside the title so the name stays readable at a glance. */
+  .sot {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--series-online);
+    background: color-mix(in srgb, var(--series-online) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--series-online) 28%, transparent);
+    border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+  }
   .brand p  { margin: 3px 0 0; font-size: 12.5px; color: var(--text-muted); }
 
   .livedot {
@@ -74,21 +182,25 @@
   }
   .livedot i {
     width: 7px; height: 7px; border-radius: 50%; background: var(--good);
-    box-shadow: 0 0 0 0 rgba(12,163,12,.55); animation: pulse 2.4s infinite;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent);
+    animation: pulse 2.4s infinite;
   }
   .livedot.paused i { background: var(--text-muted); animation: none; }
   .livedot.err i { background: var(--critical); animation: none; }
   @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(12,163,12,.5); }
-    70% { box-shadow: 0 0 0 7px rgba(12,163,12,0); }
-    100% { box-shadow: 0 0 0 0 rgba(12,163,12,0); }
+    0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 45%, transparent); }
+    70%  { box-shadow: 0 0 0 7px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
   }
 
   /* ---------- controls ---------- */
   .controls {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    padding: 10px 12px; margin-bottom: 18px;
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 12px; margin-bottom: 18px; border-radius: 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-soft);
   }
   .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .seg button {
@@ -132,18 +244,45 @@
 
   .tile {
     position: relative; text-align: left; cursor: pointer;
-    background: var(--surface-1); border: 1px solid var(--border);
     border-radius: 14px; padding: 16px 18px 15px; overflow: hidden;
-    transition: border-color .15s, transform .15s;
+    transition: border-color .15s, transform .15s, box-shadow .15s;
+    background: var(--surface-1);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-soft);
   }
-  .tile:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  .tile:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    box-shadow: var(--shadow-lift);
+  }
+  /* Selection is carried by a wash of the bucket's own colour and a wider
+     stripe rather than a hard ring — a saturated outline would fight the
+     faded palette and pull the eye harder than the number it frames. */
   .tile[aria-selected="true"] {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 13%, transparent),
+        color-mix(in srgb, var(--accent) 4%, transparent)),
+      var(--surface-1);
+    box-shadow: var(--shadow-lift);
   }
+  .tile[aria-selected="true"]::before { width: 4px; }
   .tile::before {
-    content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent);
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+    background: var(--accent); opacity: .8; transition: width .15s;
   }
+  /* Light pooling INSIDE the panel rather than sitting on it — the thing that
+     makes the reference read as glass over atmosphere rather than a flat card.
+     Tinted by the bucket's own colour, kept far enough back that the number on
+     top stays the brightest thing in the tile. */
+  .tile::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(22rem 13rem at 82% -25%,
+      color-mix(in srgb, var(--accent) 22%, transparent), transparent 68%);
+    opacity: .75;
+  }
+  .tile > * { position: relative; z-index: 1; }
   .tile-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); flex: none; }
   .tile-name { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); letter-spacing: .01em; }
@@ -165,17 +304,32 @@
   /* ---------- totals strip ---------- */
   .strip {
     display: flex; gap: 26px; flex-wrap: wrap; align-items: baseline;
-    padding: 11px 18px; margin-bottom: 20px;
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 11px 18px; margin-bottom: 20px; border-radius: 12px;
     font-size: 12.5px; color: var(--text-muted);
+    background: var(--surface-1);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-soft);
   }
   .strip b { color: var(--text-primary); font-weight: 620; font-variant-numeric: tabular-nums; }
 
   /* ---------- chart ---------- */
   .card {
-    background: var(--surface-1); border: 1px solid var(--border);
+    position: relative; overflow: hidden;
     border-radius: 14px; padding: 16px 18px; margin-bottom: 20px;
+    background: var(--surface-1);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-soft);
   }
+  .card::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(30rem 16rem at 6% -30%, var(--glow-a), transparent 66%),
+      radial-gradient(26rem 14rem at 98% -20%, var(--glow-b), transparent 62%);
+    opacity: .55;
+  }
+  .card > * { position: relative; z-index: 1; }
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 4px; flex-wrap: wrap; }
   .card-title { font-size: 13.5px; font-weight: 620; }
   .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); }
@@ -188,9 +342,11 @@
   .tooltip {
     position: fixed; pointer-events: none; z-index: 50; opacity: 0;
     transform: translate(-50%, -112%); transition: opacity .1s;
-    background: var(--surface-1); border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
     border-radius: 9px; padding: 9px 11px; min-width: 170px;
-    box-shadow: 0 8px 26px rgba(0,0,0,.30); font-size: 12px;
+    box-shadow: var(--shadow-lift); font-size: 12px;
   }
   .tooltip .tt-day { font-weight: 620; margin-bottom: 6px; color: var(--text-primary); }
   .tooltip .tt-row { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
@@ -216,7 +372,9 @@
   table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
   thead th {
     position: sticky; top: 0; z-index: 2;
-    background: var(--surface-1); text-align: left; font-weight: 600;
+    /* Opaque on purpose: rows scroll underneath, and a translucent header
+       would show them smearing through it. */
+    background: var(--surface-solid); text-align: left; font-weight: 600;
     color: var(--text-secondary); white-space: nowrap;
     padding: 9px 12px; border-bottom: 1px solid var(--baseline); cursor: pointer; user-select: none;
   }
@@ -265,13 +423,20 @@
   }
   tbody tr.clickable:hover .jhint { color: var(--text-secondary); border-bottom-color: var(--text-muted); }
 
-  .jscrim { position: fixed; inset: 0; z-index: 70; display: none; background: rgba(0,0,0,.5); }
+  .jscrim {
+    position: fixed; inset: 0; z-index: 70; display: none;
+    background: rgba(27,42,34,.28);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  }
   .jscrim.open { display: block; }
 
   .jdrawer {
     position: fixed; top: 0; right: 0; bottom: 0; z-index: 71;
     width: min(560px, 100vw); display: flex; flex-direction: column;
-    background: var(--surface-1); border-left: 1px solid var(--baseline);
+    background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-lift);
   }
   .jdrawer[hidden] { display: none; }
   .jdrawer-top {
@@ -300,7 +465,7 @@
   .jstep::before {
     content: ""; position: absolute; left: -22px; top: 4px;
     width: 9px; height: 9px; border-radius: 50%;
-    background: var(--surface-1); border: 1.5px solid var(--baseline);
+    background: var(--surface-solid); border: 1.5px solid var(--baseline);
   }
   .jstep.paid::before { border-color: var(--series-assisted); background: var(--series-assisted); }
   .jstep.marketing::before { border-color: var(--series-assisted); }
@@ -338,7 +503,8 @@
 
   .guide-scrim {
     position: fixed; inset: 0; z-index: 60; display: none;
-    background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
+    background: rgba(27,42,34,.30);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   }
   .guide-scrim.open { display: block; }
 
@@ -352,14 +518,17 @@
   .guide.open { display: block; }
   .guide-card {
     max-width: 880px; margin: 28px auto 0;
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px;
-    box-shadow: 0 24px 70px rgba(0,0,0,.45);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-lift);
   }
   .guide-top {
     position: sticky; top: 0; z-index: 2;
     display: flex; align-items: center; gap: 16px;
     padding: 15px 26px;
-    background: var(--surface-1); border-bottom: 1px solid var(--border);
+    background: var(--surface-solid); border-bottom: 1px solid var(--border);
     border-radius: 16px 16px 0 0;
   }
   .guide-top h2 { margin: 0; font-size: 17px; font-weight: 640; letter-spacing: -0.01em; }
@@ -432,7 +601,7 @@
 
   <header class="top">
     <div class="brand">
-      <h1>Order Mix <button class="helpbtn" id="help" aria-haspopup="dialog">How to read this</button></h1>
+      <h1>Multi Attribution <span class="sot">Source of Truth</span> <button class="helpbtn" id="help" aria-haspopup="dialog">How to read this</button></h1>
       <p id="sub">CLB XXIII · loading…</p>
     </div>
     <div class="livedot" id="live"><i></i><span id="livetext">connecting…</span></div>
@@ -456,10 +625,6 @@
 
     <div class="spacer"></div>
 
-    <div class="seg" id="modeseg" title="Should an assisted order be removed from Online/Draft, or counted in both?">
-      <button data-mode="true" aria-pressed="true">Exclusive</button>
-      <button data-mode="false">Overlay</button>
-    </div>
     <button class="btn" id="pause">Pause</button>
     <button class="btn" id="refresh" title="Pull anything new from Shopify right now, instead of waiting for the next scheduled sync">Refresh now</button>
     <button class="btn" id="theme">Light</button>
@@ -631,7 +796,7 @@
         </ul>
         <div class="callout">
           <b>In-store sales are not in here.</b> Anything rung up on the POS is counted
-          separately in the grey strip under the tiles, so it never inflates these three numbers.
+          separately in the strip under the tiles, so it never inflates these three numbers.
         </div>
       </section>
 
@@ -655,17 +820,14 @@
         <h3><span class="step">3</span> Choosing your dates</h3>
         <figure>
           <img data-src="/guide/range.png"
-               alt="The controls bar: Today, 7 days, 30 days, 90 days and MTD buttons, a From and to date picker with an Apply button, and Exclusive, Overlay, Pause, Refresh now and Light buttons." />
+               alt="The controls bar: Today, 7 days, 30 days, 90 days and MTD buttons, a From and to date picker with an Apply button, and Pause, Refresh now and Dark buttons." />
           <figcaption>Presets on the left, a custom range in the middle, display options on the right.</figcaption>
         </figure>
         <p>The presets cover most of it. For anything else, set <strong>From</strong> and
            <strong>to</strong> and press <strong>Apply</strong>. You can go back 90 days;
            older than that is not kept.</p>
-        <p><strong>Exclusive</strong> and <strong>Overlay</strong> change one thing. Exclusive is
-           the normal view: every order sits in exactly one tile, so the three add up to your
-           total. Overlay lets an assisted order appear in its own tile <em>and</em> in Online or
-           Draft, which is useful for spotting overlap but means the tiles deliberately add up to
-           more than the total.</p>
+        <p>Every order sits in exactly one tile, so the three always add up to your total.
+           There is no second way to count them — that is what makes this the source of truth.</p>
         <p><strong>Refresh now</strong> pulls straight from Shopify instead of waiting for the
            next scheduled check. <strong>Pause</strong> stops the page updating under you while
            you are reading it.</p>
@@ -675,11 +837,11 @@
         <h3><span class="step">4</span> The daily chart</h3>
         <figure>
           <img data-src="/guide/chart.png"
-               alt="A stacked bar chart titled Daily revenue by bucket, with one bar per day split into Online, Assisted and Draft segments." />
+               alt="A stacked bar chart titled Daily revenue by bucket, with one bar per day split into Ecommerce, Assisted and Draft segments." />
           <figcaption>One bar per day, split by the same three colours as the tiles. Hover a bar for the exact figures.</figcaption>
         </figure>
         <p>Use it to spot the shape of a week rather than the detail: a Tuesday that is almost all
-           Draft, a weekend that is almost all Online. A single very tall bar is usually one large
+           Draft, a weekend that is almost all Ecommerce. A single very tall bar is usually one large
            invoice, and clicking through to the table will show you which.</p>
       </section>
 
@@ -779,7 +941,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
  * re-read the stored snapshot. Polling faster than this buys nothing. */
 const POLL_MS = 120000;
 const state = {
-  start: null, end: null, exclusive: true,
+  start: null, end: null,
   bucket: 'online', data: null,
   sortKey: 'createdAt', sortDir: -1,
   paused: false, timer: null, tick: null, nextAt: 0, inflight: false,
@@ -848,7 +1010,6 @@ async function load() {
   try {
     const q = new URLSearchParams({
       start: state.start, end: state.end,
-      exclusive: String(state.exclusive),
     });
     const res = await fetch(`/api/data?${q}`);
     const body = await res.json();
@@ -989,11 +1150,7 @@ function render() {
   $('#t-cached').textContent  = int(d.ordersInStore ?? 0);
 
   $('#sub').textContent =
-    `CLB XXIII · ${fmtDay(d.range.start)} – ${fmtDay(d.range.end)} · ${d.exclusive ? 'exclusive buckets' : 'assisted overlaid'} · syncs every ${state.syncIntervalMin} min`;
-
-  if (!d.exclusive) {
-    showBanner('Overlay mode: assisted orders are also counted inside Online or Draft, so the three tiles intentionally sum to more than the non-POS total.', true);
-  }
+    `CLB XXIII · ${fmtDay(d.range.start)} – ${fmtDay(d.range.end)} · every order in exactly one bucket · syncs every ${state.syncIntervalMin} min`;
 
   drawChart(d.daily);
   renderCampaigns();
@@ -1292,13 +1449,6 @@ $('#apply').addEventListener('click', () => {
   load();
 });
 
-$$('#modeseg button').forEach((btn) => btn.addEventListener('click', () => {
-  $$('#modeseg button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
-  state.exclusive = btn.dataset.mode === 'true';
-  if (state.exclusive) hideBanner();
-  load();
-}));
-
 $('#pause').addEventListener('click', () => {
   state.paused = !state.paused;
   $('#pause').textContent = state.paused ? 'Resume' : 'Pause';
@@ -1309,8 +1459,9 @@ $('#csv').addEventListener('click', exportCSV);
 $('#search').addEventListener('input', renderTable);
 
 $('#theme').addEventListener('click', () => {
-  const light = document.documentElement.dataset.theme === 'light';
+  const light = document.documentElement.dataset.theme !== 'dark';
   document.documentElement.dataset.theme = light ? 'dark' : 'light';
+  // The button names where you are going, not where you are.
   $('#theme').textContent = light ? 'Light' : 'Dark';
   if (state.data) drawChart(state.data.daily);
 });
