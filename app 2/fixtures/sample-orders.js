@@ -122,6 +122,15 @@ const rows = [
     ['2026-08-17T22:48:17Z','https://www.clb23.com/',null,'direct','1st session was direct to your store'],
     ['2026-08-17T22:48:17Z','https://www.clb23.com/',null,'direct','1st session was direct to your store'],null],
 
+  /* An eBay sale, recorded by Shopify as a draft AND carrying a staff credit
+   * note — the two signals that would otherwise pull it into Draft and Assisted
+   * respectively. The store rule is that eBay is Ecommerce unconditionally, so
+   * this order must land in Ecommerce despite both. Its channel comes from the
+   * order -> channel map in sample-channels.js, exactly as in production. */
+  ['#27420','2026-08-17T23:14:02Z','shopify_draft_order','Draft Orders','PAID','Marcus Webb',892.5,892.5,850,0,0,'Credit to Erik',1,1,
+    ['2026-08-17T23:10:00Z','https://www.ebay.com/itm/196412339841',null,'direct','1st session was direct to your store'],
+    ['2026-08-17T23:10:00Z','https://www.ebay.com/itm/196412339841',null,'direct','1st session was direct to your store'],null],
+
   // --- representative POS orders (excluded from all three panels) -----------
   ['#27412','2026-08-17T22:32:50Z','pos','Point of Sale','PAID','Walk-in',26.95,26.95,25,0,0,null,0,null,null,null,null],
   ['#27413','2026-08-17T22:45:44Z','pos','Point of Sale','PAID','Walk-in',58.22,58.22,54,0,0,null,0,null,null,null,null],

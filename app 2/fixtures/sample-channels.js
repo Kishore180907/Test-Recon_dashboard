@@ -51,6 +51,10 @@ const tally = (list) =>
  * would label them "Draft Orders". Order numbers match sample-orders.js where
  * they overlap; the rest exercise the map's fall-through. */
 const ORDER_CHANNELS = [
+  // eBay: no such order exists in the live store yet, so this one is invented
+  // to exercise the unconditional-Ecommerce rule end to end. Everything else in
+  // this list is real.
+  ['#27420', 'eBay'],
   ['#27790', 'Shopify Mobile for iPhone'],
   ['#26897', 'Shopify Mobile for iPhone'],
   ['#26684', 'Shopify Mobile for iPhone'],
