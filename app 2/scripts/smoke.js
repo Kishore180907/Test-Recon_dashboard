@@ -142,10 +142,18 @@ check('reversed ranges are rejected',
 check('a range older than coverage is rejected',
   (await data(req('/api/data?start=2020-01-01&end=2026-08-17'))).status === 400);
 
-/* ---- 5. overlay mode ------------------------------------------------------ */
+/* ---- 5. the retired overlay parameter -------------------------------------
+ * ?exclusive=false used to count assisted orders twice. It is gone along with
+ * its UI toggle; an old bookmark carrying it must get the real numbers rather
+ * than an error or the old double-counted ones.
+ * -------------------------------------------------------------------------- */
 const ov = await body(await data(req('/api/data?start=2026-08-11&end=2026-08-17&exclusive=false')));
-check('overlay mode returns at least as many assisted orders',
-  ov.buckets.assisted.orderCount >= b.assisted.orderCount);
+check('the retired exclusive=false parameter is ignored, not honoured',
+  ov.buckets.assisted.orderCount === b.assisted.orderCount &&
+  Math.abs(ov.totals.nonPosRevenue - payload.totals.nonPosRevenue) < 0.005);
+check('tiles still sum to the non-POS total when it is passed',
+  Math.abs((ov.buckets.online.revenue + ov.buckets.assisted.revenue + ov.buckets.draft.revenue)
+    - ov.totals.nonPosRevenue) < 0.005);
 
 /* ---- 6. config ------------------------------------------------------------ */
 const cfg = await body(await appconfig(req('/api/config')));
