@@ -148,4 +148,28 @@ export const SAMPLE_JOURNEYS = {
       M(['2026-08-10T15:29:47Z', HOME, null, 'direct', '1st session was direct to your store']),
     ],
   },
+
+  /* The eBay order. A marketplace sale has no on-site journey to speak of —
+   * the customer never touched the storefront — so this exists mainly so the
+   * offline preview does not answer "no such order" when the row is clicked.
+   * Real eBay orders are written up by hand and look much like this. */
+  'gid://shopify/Order/900000000034': {
+    id: 'gid://shopify/Order/900000000034',
+    orderNumber: '#27420',
+    createdAt: '2026-08-17T23:14:02Z',
+    note: 'Credit to Erik',
+    netPayment: 892.5,
+    currency: 'USD',
+    ready: true,
+    touchpoints: 1,
+    daysToConversion: 0,
+    customerName: 'Marcus Webb',
+    customerOrders: 1,
+    customerSpend: 0,
+    previousOrder: null,
+    moments: [
+      M(['2026-08-17T23:10:00Z', 'https://www.ebay.com/itm/196412339841', null,
+         'direct', '1st session was direct to your store']),
+    ],
+  },
 };
