@@ -25,7 +25,13 @@ export default async (req) => {
   const url = new URL(req.url);
   const start = url.searchParams.get('start') || daysAgoLocal(6);
   const end = url.searchParams.get('end') || todayLocal();
-  const exclusive = url.searchParams.get('exclusive') !== 'false';
+  /* Buckets are always exclusive — every order lands in exactly one of the
+   * three, so they sum to the non-POS total. The old ?exclusive=false overlay
+   * counted assisted orders twice and was removed with its UI toggle: a second
+   * way to count contradicts the whole point of a source of truth. The
+   * parameter is ignored rather than rejected so an old bookmark still works;
+   * it just gets the real numbers. */
+  const exclusive = true;
 
   if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
     return json(400, { error: 'start and end must be YYYY-MM-DD' });
