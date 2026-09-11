@@ -21,7 +21,7 @@ const {
   setWatermark, getWatermark, acquireLock, releaseLock,
 } = await import('../lib/repo.js');
 const { buildPayload } = await import('../lib/payload.js');
-const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel } = await import('../lib/classify.js');
+const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel, isEbayOrder, isMobileAppChannel } = await import('../lib/classify.js');
 const { localDateOf } = await import('../lib/timezone.js');
 const auth = await import('../lib/auth.js');
 
@@ -300,10 +300,15 @@ const third = await acquireLock('c');
 await releaseLock();
 check('the sync lock keeps two runs from overlapping', first && !second && third);
 
-/* ---- classification ------------------------------------------------------- */
-// The store's rule: a draft order keeps the Draft credit only when both
-// touchpoints are direct. A marketing-touched draft is credited to Assisted.
+/* ---- classification -------------------------------------------------------
+ * An independent restatement of the whole rule, written out longhand so it can
+ * disagree with bucketOf() if either drifts. Order matters and mirrors
+ * bucketOf: eBay first (unconditional), then the mobile app (yields to a credit
+ * note), then the draft attribution split, then assisted.
+ * -------------------------------------------------------------------------- */
 const wantBucket = (o) => {
+  if (isEbayOrder(o)) return 'online';
+  if (isMobileAppChannel(o)) return isAssisted(o) ? 'assisted' : 'online';
   if (isDraft(o)) return isMarketingTouched(o) ? 'assisted' : 'draft';
   return isAssisted(o) ? 'assisted' : 'online';
 };
@@ -393,7 +398,28 @@ check('a draft order with a retail location is not treated as POS',
   const base = { note: '', firstClickSource: 'Direct', lastClickSource: 'Direct' };
   const viaChannel = { ...base, sourceName: '987654321', salesChannel: 'eBay' };
 
+  /* The shape eBay ACTUALLY arrives in, copied from live orders #28113/#28114:
+   * a hand-written draft against a customer named "Ebay", with every channel
+   * field empty. This is the case the first version of the rule missed — it
+   * only tested channel fields, so these fell straight into Draft. */
+  const realWorld = {
+    ...base,
+    sourceName: 'shopify_draft_order',
+    appName: 'Draft Orders',
+    customerName: 'Ebay',
+    salesChannel: 'Draft Orders', // what ShopifyQL reports for them
+    firstClickSource: 'No journey data',
+    lastClickSource: 'No journey data',
+  };
+  check('a hand-written eBay draft buckets to Ecommerce', bucketOf(realWorld) === 'online');
+  check('the live eBay shape is recognised', isEbayOrder(realWorld));
+  check('an eBay draft gets no device label', deviceLabel(realWorld) === null);
+  check('an identical draft for any other customer stays in Draft',
+    bucketOf({ ...realWorld, customerName: 'Marcus Webb' }) === 'draft');
+
   check('an eBay order buckets to Ecommerce', bucketOf(viaChannel) === 'online');
+  check('eBay is recognised via customerName',
+    bucketOf({ ...base, sourceName: 'web', customerName: 'Ebay' }) === 'online');
 
   // The two that matter: neither signal may pull eBay out of Ecommerce.
   check('a credited eBay order stays in Ecommerce',
