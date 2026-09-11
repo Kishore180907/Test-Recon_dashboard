@@ -17,7 +17,7 @@ Splits store revenue three ways and lets you click into the orders behind each n
 
 | Bucket | Rule |
 |---|---|
-| **Ecommerce** | Not a draft order, no staff credit note. The customer served themselves, through any digital channel — Online Store, Shop app, StockX, Facebook & Instagram, Marketplace Connect, Shopify Mobile. See `ECOMMERCE_APPS` in `lib/classify.js`. |
+| **Ecommerce** | Not a draft order, no staff credit note. The customer served themselves, through any digital channel — Online Store, Shop app, StockX, Facebook & Instagram, Marketplace Connect, Shopify Mobile. See `ECOMMERCE_APPS` in `lib/classify.js`. **eBay is unconditional** — see below. |
 | **Assisted** | A human moved the sale along — a staff credit note on the order, or a draft order whose customer journey shows a marketing or ad touchpoint. |
 | **Draft** | A draft order where **both** touchpoints are Direct. Nobody's marketing brought them in; someone at the store wrote the order up. |
 
@@ -48,6 +48,25 @@ The map is cached rather than fetched on demand because `/api/data` never calls 
 **Three tiles, not four.** Shopify Mobile is folded into Ecommerce, not shown separately, because Shopify counts it inside its own E-Commerce line. Every drill-down row names its origin: the Shopify channel on the first line, and a `device` label beneath it — **Shopify iPhone** for mobile-app orders, **Shopify desktop** for drafts written at a desk (`deviceLabel()` in `lib/classify.js`). Both feed the search box and the CSV export.
 
 `/api/channels` remains as a diagnostic endpoint for reconciling against Shopify Analytics directly; the dashboard UI does not call it.
+
+### eBay is Ecommerce unconditionally
+
+Store rule, set 2026-09-11: an eBay sale is an ecommerce sale, full stop. `isEbayChannel()` is tested in `bucketOf()` **above both the draft test and the assisted test**, so neither a staff credit note nor draft origin can move an eBay order out of Ecommerce. Only POS outranks it, and a POS sale cannot be an eBay sale.
+
+That makes it stricter than the Shopify Mobile rule, which still yields to a credit note. The two are deliberately different:
+
+| Signal on the order | Shopify Mobile | eBay |
+|---|---|---|
+| Nothing else | Ecommerce | Ecommerce |
+| Staff credit note | **Assisted** | **Ecommerce** |
+| Recorded as a draft | Ecommerce | Ecommerce |
+| POS | POS | POS |
+
+**eBay was not selling through this store when the rule was written.** Checked across 2025-09-01 to 2026-09-11: eBay appears in no sales channel and no order referrer. So which field will carry it is not yet observable, and `isEbayChannel()` word-boundary matches `/\bebay\b/i` against `salesChannel`, `channelName`, `appName`, `channelHandle` and `sourceName` — whichever one eBay lands in, the rule fires. Shopify's own eBay integration was retired; the path now is Marketplace Connect, which for other marketplaces populates the app name (Facebook & Instagram arrives as app `Meta`).
+
+**Known gap.** If eBay orders arrive tagged only as the generic `Marketplace Connect` with no mention of eBay in any field, this cannot tell them from Amazon, Walmart or Etsy on the same app. They would still reach Ecommerce through `ECOMMERCE_APPS`, but *conditionally* — a credit note would pull them to Assisted. Confirm against a real eBay order once one exists, and if the channel string is generic, add a distinguishing field rather than widening the pattern.
+
+Fixture order `#27420` covers this end to end: a draft carrying "Credit to Erik" that must still land in Ecommerce.
 
 ### Reconciling against Shopify Analytics
 
