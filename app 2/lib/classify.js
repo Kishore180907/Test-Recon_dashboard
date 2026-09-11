@@ -50,7 +50,43 @@ export const ECOMMERCE_APPS = [
   'meta', // Marketplace Connect surfaces as app 'Meta'
   'marketplace connect',
   'shopify mobile',
+  'ebay',
 ];
+
+/* -----------------------------------------------------------------------------
+ * 1b-ii. eBay — unconditionally Ecommerce
+ * -----------------------------------------------------------------------------
+ * Store rule, set 2026-09-11: an eBay sale is an ecommerce sale, full stop. It
+ * outranks every other signal — a staff credit note on an eBay order does NOT
+ * move it to Assisted, and an eBay order recorded as a draft does NOT move it to
+ * Draft. Only POS outranks it, and a POS sale cannot be an eBay sale anyway.
+ *
+ * That makes it stricter than the Shopify Mobile rule directly below, which
+ * still yields to a credit note.
+ *
+ * Matched across four fields rather than one because eBay was not selling
+ * through this store when the rule was written — checked 2025-09-01..2026-09-11,
+ * eBay appears in no sales channel and no order referrer — so which field will
+ * carry it is not yet observable. Shopify's own eBay integration was retired and
+ * the path now is Marketplace Connect, which for other marketplaces populates
+ * app name (e.g. app 'Meta' for Facebook). Testing channel, app, handle and
+ * sourceName means the rule fires whichever of them eBay lands in.
+ *
+ * Word-boundary matched, so 'eBay', 'eBay Marketplace' and
+ * 'Marketplace Connect - eBay' all hit while an unrelated substring does not.
+ *
+ * KNOWN GAP: if eBay orders arrive tagged only as the generic 'Marketplace
+ * Connect' with no mention of eBay anywhere, this cannot distinguish them from
+ * Amazon/Walmart/Etsy on the same app. They would still reach Ecommerce via
+ * ECOMMERCE_APPS, but conditionally — a credit note would pull them to Assisted.
+ * Confirm against a real eBay order once one exists.
+ * ---------------------------------------------------------------------------*/
+const EBAY_PATTERN = /\bebay\b/i;
+
+export function isEbayChannel(o) {
+  return [o?.salesChannel, o?.channelName, o?.appName, o?.channelHandle, o?.sourceName]
+    .some((v) => EBAY_PATTERN.test(String(v ?? '')));
+}
 
 /* -----------------------------------------------------------------------------
  * 1c. Which device wrote the order
@@ -73,6 +109,9 @@ export function isMobileAppChannel(o) {
 /** Human label for the drill-down's device column. Null when not applicable. */
 export function deviceLabel(o) {
   if (isPOS(o)) return null;
+  // A marketplace sale has no staff device behind it, so it gets no device
+  // label even in the unlikely case Shopify records it as a draft.
+  if (isEbayChannel(o)) return null;
   if (isMobileAppChannel(o)) return 'Shopify iPhone';
   // Only drafts are ambiguous enough to be worth labelling; a storefront order
   // was placed by the customer, not written up by staff on any device.
@@ -235,6 +274,11 @@ export function isMarketingTouched(o) {
 export function bucketOf(o, { exclusive = true } = {}) {
   if (isPOS(o)) return 'pos'; // excluded from all three panels
 
+  /* eBay is Ecommerce unconditionally — see isEbayChannel. This sits above both
+   * the draft test and the assisted test, so neither a credit note nor draft
+   * origin can move an eBay sale out of Ecommerce. */
+  if (isEbayChannel(o)) return 'online';
+
   /* A draft written up in the Shopify mobile app is an ecommerce sale, not a
    * desk-written invoice. The Admin API cannot tell the two apart — both report
    * app 'Draft Orders' — so `salesChannel` is stamped onto the order from
@@ -267,6 +311,7 @@ export function annotate(o, { exclusive = true } = {}) {
     isDraft: draft,
     isAssisted: assisted,
     fromMobileApp: isMobileAppChannel(o),
+    fromEbay: isEbayChannel(o),
     marketingTouched: isMarketingTouched(o),
     creditedTo: creditedTo(o),
     bucket: bucketOf(o, { exclusive }),
