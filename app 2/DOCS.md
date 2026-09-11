@@ -62,9 +62,26 @@ That makes it stricter than the Shopify Mobile rule, which still yields to a cre
 | Recorded as a draft | Ecommerce | Ecommerce |
 | POS | POS | POS |
 
-**eBay was not selling through this store when the rule was written.** Checked across 2025-09-01 to 2026-09-11: eBay appears in no sales channel and no order referrer. So which field will carry it is not yet observable, and `isEbayChannel()` word-boundary matches `/\bebay\b/i` against `salesChannel`, `channelName`, `appName`, `channelHandle` and `sourceName` — whichever one eBay lands in, the rule fires. Shopify's own eBay integration was retired; the path now is Marketplace Connect, which for other marketplaces populates the app name (Facebook & Instagram arrives as app `Meta`).
+**How eBay actually arrives — verified against live orders #28113 and #28114 (2026-09-11).** eBay is **not a sales channel** on this store. The team writes the sale up by hand as a draft order against a customer account named **"Ebay"**. Every field that would normally identify a channel is empty:
 
-**Known gap.** If eBay orders arrive tagged only as the generic `Marketplace Connect` with no mention of eBay in any field, this cannot tell them from Amazon, Walmart or Etsy on the same app. They would still reach Ecommerce through `ECOMMERCE_APPS`, but *conditionally* — a credit note would pull them to Assisted. Confirm against a real eBay order once one exists, and if the channel string is generic, add a distinguishing field rather than widening the pattern.
+| Field | Value |
+|---|---|
+| `sourceName` | `shopify_draft_order` — same as any other draft |
+| `app.name` | `Draft Orders` |
+| `channelInformation` | `null` |
+| `publication` | `null` |
+| `sourceIdentifier` | `null` |
+| `tags` | `[]` |
+| `note` | `null` |
+| `customer.displayName` | **`Ebay`** — the only signal there is |
+
+ShopifyQL is no help either: it reports these under the `Draft Orders` channel, so the order → channel map cannot separate them from a genuine desk-written draft.
+
+So **`customerName` is the load-bearing field**, and `isEbayOrder()` tests it first. The five channel fields (`salesChannel`, `channelName`, `appName`, `channelHandle`, `sourceName`) are also tested — they cost nothing and would catch eBay arriving through a real channel later, via Marketplace Connect say, without another code change.
+
+The match is a word-boundary `/\bebay\b/i`, so `Ebay`, `eBay Marketplace` and `Marketplace Connect - eBay` all hit while `Storebayside` does not.
+
+**The first version of this rule got it wrong.** It tested only the channel fields, on the assumption eBay would arrive through Marketplace Connect. It shipped, and the live eBay orders kept landing in Draft, because nothing about them mentions eBay except the customer name.
 
 Fixture order `#27420` covers this end to end: a draft carrying "Credit to Erik" that must still land in Ecommerce.
 
