@@ -1,4 +1,4 @@
-# CLB XXIII — Order Mix
+# CLB XXIII — Multi Attribution · Source of Truth
 
 Near-real-time revenue split for the store: **Online**, **Assisted**, **Draft** — each tile clickable through to the orders behind it, with first click, last click and traffic source per order.
 
@@ -41,7 +41,7 @@ POS is 90%+ of order volume and the dashboard only ever shows it as one referenc
 ### 1. Push to GitHub
 
 ```bash
-git init && git add -A && git commit -m "Order Mix dashboard"
+git init && git add -A && git commit -m "Multi Attribution dashboard"
 gh repo create clb23-dashboard --private --source=. --push
 ```
 

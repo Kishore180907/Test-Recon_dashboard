@@ -1,6 +1,6 @@
-# Order Mix — build and operations handover
+# Multi Attribution — Source of Truth · build and operations handover
 
-Everything needed to run, change, deploy and debug the CLB XXIII Order Mix dashboard, plus the history that explains why several pieces look the way they do.
+Everything needed to run, change, deploy and debug the CLB XXIII Multi Attribution dashboard, plus the history that explains why several pieces look the way they do.
 
 `README.md` is the five-minute version. This is the whole thing.
 
