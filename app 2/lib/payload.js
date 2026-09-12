@@ -249,6 +249,11 @@ function slim(o, adSpendByKey = new Map()) {
     orderNumber: o.orderNumber,
     adminUrl: o.adminUrl,
     createdAt: o.createdAt,
+    /* The order's day in the STORE's timezone, precomputed here because the
+     * daily series is bucketed the same way. Deriving it in the browser would
+     * use the viewer's timezone and could file an order under a different day
+     * than the chart it is drawn on. */
+    day: localDateOf(o.createdAt),
     customerName: o.customerName,
     orderIndex: o.orderIndex ?? null,
     customerOrders: o.customerOrders ?? null,
@@ -263,6 +268,12 @@ function slim(o, adSpendByKey = new Map()) {
     // Shopify Analytics' channel for this exact order, and the device it names.
     // Both null when the channel map was unavailable.
     salesChannel: o.salesChannel || null,
+    /* Set by the eBay rule in classify.js. Carried through because an eBay
+     * order usually has NO sales channel — it arrives as a hand-written draft
+     * against the "Ebay" customer — so anything grouping by channel would
+     * otherwise label it with the Admin API's app name, "Draft Orders", and
+     * show it as a draft inside the Ecommerce breakdown. */
+    fromEbay: Boolean(o.fromEbay),
     device: deviceLabel(o),
     isAssisted: o.isAssisted,
     isDraft: o.isDraft,
