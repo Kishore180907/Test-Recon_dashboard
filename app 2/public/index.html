@@ -55,6 +55,14 @@
     --warning:  #d3ae70;
     --critical: #c08484;
 
+    /* Categorical slots for the channel breakdown. The documented default
+       palette, light column, validated against this surface: lightness band,
+       chroma floor, CVD separation and normal-vision floor all pass. Contrast
+       WARNs on four slots, so that chart ships direct end-labels — the relief
+       the rule asks for. */
+    --cat-1: #2a78d6;  --cat-2: #eb6834;  --cat-3: #1baf7a;  --cat-4: #eda100;
+    --cat-5: #e87ba4;  --cat-6: #008300;  --cat-7: #4a3aa7;  --cat-8: #e34948;
+
     --glow-a: rgba(122,168,136,0.16);
     --glow-b: rgba(143,173,180,0.13);
     --glow-c: rgba(198,154,128,0.09);
@@ -105,6 +113,11 @@
     --good:     #62b3a4;
     --warning:  #d9ac74;
     --critical: #cf8b8b;
+
+    /* Same eight hues, stepped for the dark surface — a selected set, not an
+       automatic flip. All six checks pass here, contrast included. */
+    --cat-1: #3987e5;  --cat-2: #d95926;  --cat-3: #199e70;  --cat-4: #c98500;
+    --cat-5: #d55181;  --cat-6: #008300;  --cat-7: #9085e9;  --cat-8: #e66767;
 
     /* The atmospheric pools that bleed through the glass. */
     --glow-a: rgba(111,168,220,0.20);
@@ -335,6 +348,37 @@
   .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .legend i { width: 9px; height: 9px; border-radius: 2.5px; }
+
+  /* The Ecommerce legend entry doubles as the control that opens the channel
+     breakdown, so it has to look pressable without becoming a loud button. */
+  .legend-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: transparent; border: 1px solid transparent; border-radius: 999px;
+    color: inherit; font: inherit; font-size: 12px;
+    padding: 3px 9px 3px 7px; cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .legend-btn:hover, .legend-btn[aria-expanded="true"] {
+    background: var(--wash); border-color: var(--border); color: var(--text-primary);
+  }
+  .legend-more {
+    font-size: 10.5px; color: var(--text-muted); letter-spacing: .02em;
+    padding-left: 2px; border-left: 1px solid var(--border); margin-left: 2px;
+  }
+  .legend-btn:hover .legend-more { color: var(--text-secondary); }
+
+  .legend-wrap { flex-wrap: wrap; row-gap: 7px; margin: 2px 0 10px; }
+  .card-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
+  .head-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ch-empty { margin: 6px 2px 2px; font-size: 12.5px; color: var(--text-muted); }
+
+  /* Series identity is never colour alone: every legend entry pairs its swatch
+     with the channel name, and the chart direct-labels each line's end. */
+  #ch-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  #ch-chart { width: 100%; height: 250px; display: block; }
+  #ch-chart text { fill: var(--text-muted); font-size: 10.5px; }
+  #ch-chart .ch-endlabel { font-size: 10.5px; font-weight: 600; }
+  #ch-chart .ch-axis { fill: var(--text-muted); font-size: 10.5px; }
 
   #chart { width: 100%; height: 190px; display: block; }
   #chart text { font: 11px system-ui, sans-serif; fill: var(--text-muted); }
@@ -671,12 +715,39 @@
     <div class="card-head">
       <div class="card-title">Daily revenue by bucket</div>
       <div class="legend">
-        <span><i style="background:var(--series-online)"></i>Ecommerce</span>
+        <button type="button" class="legend-btn" id="ch-open"
+                aria-expanded="false" aria-controls="ch-card"
+                title="Break Ecommerce down by sales channel">
+          <i style="background:var(--series-online)"></i>Ecommerce
+          <span class="legend-more" aria-hidden="true">break down</span>
+        </button>
         <span><i style="background:var(--series-assisted)"></i>Assisted</span>
         <span><i style="background:var(--series-draft)"></i>Draft</span>
       </div>
     </div>
     <svg id="chart" role="img" aria-label="Daily revenue by bucket"></svg>
+  </div>
+
+  <!-- Opened from the Ecommerce legend entry above. One line per sales channel,
+       so you can see which channel the Ecommerce number is actually flowing
+       through, either as order count or as revenue. -->
+  <div class="card" id="ch-card" hidden>
+    <div class="card-head">
+      <div>
+        <div class="card-title">Ecommerce by channel</div>
+        <div class="card-sub" id="ch-sub"></div>
+      </div>
+      <div class="head-tools">
+        <div class="seg" id="ch-metric" role="group" aria-label="Measure">
+          <button type="button" data-metric="orders"  aria-pressed="true">Orders</button>
+          <button type="button" data-metric="revenue" aria-pressed="false">Revenue</button>
+        </div>
+        <button class="btn" id="ch-close" title="Hide this breakdown">Close</button>
+      </div>
+    </div>
+    <div class="legend legend-wrap" id="ch-legend"></div>
+    <svg id="ch-chart" role="img" aria-label="Ecommerce orders by sales channel over time"></svg>
+    <p class="ch-empty" id="ch-empty" hidden></p>
   </div>
 
   <div class="card" id="camp-card" hidden>
@@ -934,6 +1005,7 @@
 <div class="tooltip" id="tooltip"></div>
 
 <script type="module">
+import { channelSeries } from '/channels.js';
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -954,6 +1026,9 @@ const money = (n, cur = 'USD') =>
 const money2 = (n, cur = 'USD') =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, minimumFractionDigits: 2 }).format(n || 0);
 const int = (n) => new Intl.NumberFormat('en-US').format(n || 0);
+/* Whole dollars — for legend totals, where cents are noise. */
+const money0 = (n, cur = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(n || 0);
 
 function heroMoney(el, n) {
   const whole = Math.trunc(n || 0);
@@ -1153,6 +1228,7 @@ function render() {
     `CLB XXIII · ${fmtDay(d.range.start)} – ${fmtDay(d.range.end)} · every order in exactly one bucket · syncs every ${state.syncIntervalMin} min`;
 
   drawChart(d.daily);
+  renderChannelCard();   // no-op while the panel is closed
   renderCampaigns();
   renderTable();
 }
@@ -1283,6 +1359,202 @@ function drawChart(daily) {
  * this ladder keeps the tallest bar close to the top. Every step is divisible
  * by 2 so the midline label stays clean. */
 const NICE_STEPS = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+/* ===========================================================================
+ *  ECOMMERCE BY CHANNEL
+ *  -------------------------------------------------------------------------
+ *  Opened from the Ecommerce legend entry. One line per sales channel, showing
+ *  either order count or revenue over the selected days.
+ *
+ *  Computed entirely from the drill-down rows already in the payload — every
+ *  non-POS order in range is there, uncapped — so this costs no extra request
+ *  and cannot disagree with the tile above it.
+ *
+ *  Channel comes from Shopify Analytics (`salesChannel`) where the map has it,
+ *  falling back to the Admin API's own app name. Orders synced before the map
+ *  existed have neither and are grouped as "Unattributed" rather than being
+ *  silently dropped — a missing channel is a fact about the data, not a reason
+ *  to understate a day.
+ *
+ *  The grouping rule itself lives in /channels.js so the test suite can import
+ *  and assert it; everything below is the drawing.
+ * ======================================================================== */
+const chState = { open: false, metric: 'orders' };
+
+function renderChannelCard() {
+  if (!chState.open || !state.data) return;
+  const days = (state.data.daily || []).map((d) => d.day);
+  const rows = state.data.buckets.online.orders || [];
+  const series = channelSeries(rows, days, chState.metric);
+
+  const money = chState.metric === 'revenue';
+  $('#ch-chart').setAttribute('aria-label',
+    `Ecommerce ${money ? 'revenue' : 'orders'} by sales channel over time`);
+
+  const empty = $('#ch-empty');
+  if (!series.length || !days.length) {
+    $('#ch-legend').innerHTML = '';
+    $('#ch-chart').innerHTML = '';
+    $('#ch-sub').textContent = '';
+    empty.hidden = false;
+    empty.textContent = 'No ecommerce orders in this range.';
+    return;
+  }
+  empty.hidden = true;
+
+  const grand = series.reduce((t, c) => t + c.total, 0);
+  $('#ch-sub').textContent =
+    `${series.length} channel${series.length === 1 ? '' : 's'} · ` +
+    (money ? money2(grand) : `${grand} order${grand === 1 ? '' : 's'}`) +
+    ` · ${fmtDay(state.data.range.start)} – ${fmtDay(state.data.range.end)}`;
+
+  $('#ch-legend').innerHTML = series.map((c) =>
+    `<span><i style="background:${c.color}"></i>${esc(c.name)}` +
+    `<b style="margin-left:5px;color:var(--text-secondary);font-weight:600">` +
+    `${money ? money0(c.total) : c.total}</b></span>`).join('');
+
+  drawChannelChart(series, days, money);
+}
+
+/* A line per channel. Crosshair + tooltip on hover, and the end of each line is
+ * labelled directly — that is also what discharges the light-mode contrast
+ * relief the palette validator asks for. */
+function drawChannelChart(series, days, money) {
+  const svg = $('#ch-chart');
+  const W = svg.clientWidth || 900, H = 250;
+  /* Narrow screens get tighter gutters and shorter end-labels — at phone width
+   * a 96px right margin is a quarter of the plot. */
+  const narrow = W < 560;
+  const M = { t: 12, r: narrow ? 62 : 96, b: 26, l: narrow ? 40 : 56 };
+  const nameCap = narrow ? 9 : 15;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const mk = (n, a = {}) => { const e = document.createElementNS(ns, n);
+    for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); return e; };
+
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const peak = Math.max(1, ...series.flatMap((c) => c.points));
+  const nice = money ? niceMax(peak) : Math.max(1, Math.ceil(niceMax(peak)));
+  const y = (v) => M.t + ih - (v / nice) * ih;
+  const x = (i) => days.length === 1
+    ? M.l + iw / 2
+    : M.l + (iw * i) / (days.length - 1);
+
+  for (const gv of [0, nice / 2, nice]) {
+    svg.appendChild(mk('line', { x1: M.l, x2: M.l + iw, y1: y(gv), y2: y(gv),
+      stroke: gv === 0 ? 'var(--baseline)' : 'var(--grid)', 'stroke-width': 1 }));
+    const lb = mk('text', { x: M.l - 8, y: y(gv) + 4, 'text-anchor': 'end', class: 'ch-axis' });
+    lb.textContent = money
+      ? (gv >= 1000 ? `$${Math.round(gv / 1000)}k` : `$${Math.round(gv)}`)
+      : String(Math.round(gv));
+    svg.appendChild(lb);
+  }
+
+  const crosshair = mk('line', { y1: M.t, y2: M.t + ih, stroke: 'var(--baseline)',
+    'stroke-width': 1, opacity: 0 });
+  svg.appendChild(crosshair);
+
+  for (const c of series) {
+    const d = c.points.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+    svg.appendChild(mk('path', { d, fill: 'none', stroke: c.color, 'stroke-width': 2,
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+
+    // A single day has no line to speak of, so it gets a dot instead.
+    if (days.length === 1) {
+      svg.appendChild(mk('circle', { cx: x(0), cy: y(c.points[0]), r: 4, fill: c.color }));
+    }
+
+  }
+
+  /* Direct end-labels, de-collided.
+   *
+   * Several channels commonly finish the range at zero — a marketplace that
+   * sold nothing on the last day sits exactly on the baseline with every other
+   * quiet channel — so labels placed at their true y would stack on top of each
+   * other and turn into mush. Place them at the line's real height, then walk
+   * down the list pushing any that are too close apart, and clamp the result
+   * into the plot. The label still reads left-to-right off its own line
+   * because the colour matches, and this is also the relief that discharges the
+   * light-mode contrast WARN on the categorical palette. */
+  const LBL_GAP = 13;
+  const labels = series
+    .map((c) => ({ c, want: y(c.points[c.points.length - 1]) }))
+    .sort((a, b) => a.want - b.want);
+
+  let cursor = -Infinity;
+  for (const l of labels) {
+    l.at = Math.max(l.want, cursor + LBL_GAP);
+    cursor = l.at;
+  }
+  // If the stack overflowed the bottom, slide the whole run back up.
+  const overflow = cursor - (M.t + ih);
+  if (overflow > 0) for (const l of labels) l.at -= overflow;
+
+  for (const l of labels) {
+    const at = Math.min(M.t + ih, Math.max(M.t + 4, l.at));
+    // A leader line when the label had to move, so it still reads as belonging
+    // to its own series rather than floating free.
+    if (Math.abs(at - l.want) > 1.5) {
+      svg.appendChild(mk('line', {
+        x1: M.l + iw, y1: l.want, x2: M.l + iw + 5, y2: at - 3.5,
+        stroke: l.c.color, 'stroke-width': 1, opacity: 0.45,
+      }));
+    }
+    const lb = mk('text', { x: M.l + iw + 8, y: at, class: 'ch-endlabel', fill: l.c.color });
+    lb.setAttribute('dominant-baseline', 'middle');
+    lb.textContent = l.c.name.length > nameCap
+      ? `${l.c.name.slice(0, nameCap - 1)}…` : l.c.name;
+    svg.appendChild(lb);
+  }
+
+  /* Date labels are thinned by how many actually FIT, not by how many days
+   * there are: seven labels are fine on a desktop plot and collide into mush in
+   * a 300px-wide one. "Aug 11" needs about 52px plus breathing room. */
+  const labelEvery = Math.max(1, Math.ceil(days.length / Math.max(1, Math.floor(iw / 62))));
+
+  // One hit band per day, wider than the marks, driving crosshair + tooltip.
+  const band = days.length > 1 ? iw / (days.length - 1) : iw;
+  days.forEach((day, i) => {
+    const hit = mk('rect', { x: x(i) - band / 2, y: M.t, width: band, height: ih,
+      fill: 'transparent' });
+    hit.style.cursor = 'crosshair';
+    hit.addEventListener('mousemove', (e) => {
+      crosshair.setAttribute('x1', x(i)); crosshair.setAttribute('x2', x(i));
+      crosshair.setAttribute('opacity', '1');
+      showChannelTip(e, day, series, i, money);
+    });
+    hit.addEventListener('mouseleave', () => { crosshair.setAttribute('opacity', '0'); hideTip(); });
+    svg.appendChild(hit);
+
+    if (i % labelEvery === 0 || i === days.length - 1) {
+      const lb = mk('text', { x: x(i), y: H - 7, 'text-anchor': 'middle', class: 'ch-axis' });
+      lb.textContent = fmtDay(day);
+      svg.appendChild(lb);
+    }
+  });
+}
+
+function showChannelTip(e, day, series, i, money) {
+  const tip = $('#tooltip');
+  const rows = series
+    .map((c) => ({ c, v: c.points[i] }))
+    .filter((r) => r.v > 0)
+    .sort((a, b) => b.v - a.v);
+  const total = rows.reduce((t, r) => t + r.v, 0);
+
+  tip.innerHTML =
+    `<div class="tt-day">${fmtDay(day)}</div>` +
+    (rows.length
+      ? rows.map((r) => `<div class="tt-row"><i style="background:${r.c.color}"></i>` +
+          `${esc(r.c.name)}<b>${money ? money2(r.v) : r.v}</b></div>`).join('') +
+        `<div class="tt-row" style="margin-top:5px;border-top:1px solid var(--grid);padding-top:5px">` +
+        `Total<b>${money ? money2(total) : total}</b></div>`
+      : `<div class="tt-row" style="color:var(--text-muted)">No ecommerce orders</div>`);
+  tip.style.left = `${e.clientX}px`;
+  tip.style.top = `${e.clientY}px`;
+  tip.style.opacity = '1';
+}
+
 function niceMax(v) {
   const mag = 10 ** Math.floor(Math.log10(v));
   const scaled = v / mag;
@@ -1454,6 +1726,28 @@ $('#pause').addEventListener('click', () => {
   $('#pause').textContent = state.paused ? 'Resume' : 'Pause';
   setLive();
 });
+/* ---- the Ecommerce channel breakdown ---- */
+$('#ch-open').addEventListener('click', () => {
+  chState.open = !chState.open;
+  $('#ch-open').setAttribute('aria-expanded', String(chState.open));
+  $('#ch-card').hidden = !chState.open;
+  if (chState.open) {
+    renderChannelCard();
+    $('#ch-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+});
+$('#ch-close').addEventListener('click', () => {
+  chState.open = false;
+  $('#ch-open').setAttribute('aria-expanded', 'false');
+  $('#ch-card').hidden = true;
+});
+$$('#ch-metric button').forEach((btn) => btn.addEventListener('click', () => {
+  chState.metric = btn.dataset.metric;
+  $$('#ch-metric button').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b === btn)));
+  renderChannelCard();
+}));
+
 $('#refresh').addEventListener('click', syncNow);
 $('#csv').addEventListener('click', exportCSV);
 $('#search').addEventListener('input', renderTable);
@@ -1463,7 +1757,7 @@ $('#theme').addEventListener('click', () => {
   document.documentElement.dataset.theme = light ? 'dark' : 'light';
   // The button names where you are going, not where you are.
   $('#theme').textContent = light ? 'Light' : 'Dark';
-  if (state.data) drawChart(state.data.daily);
+  if (state.data) { drawChart(state.data.daily); renderChannelCard(); }
 });
 
 /* ---------------- the guide ---------------- */
@@ -1668,7 +1962,11 @@ $$('#tbl thead th').forEach((th) => th.addEventListener('click', () => {
 let rt;
 addEventListener('resize', () => {
   clearTimeout(rt);
-  rt = setTimeout(() => state.data && drawChart(state.data.daily), 150);
+  rt = setTimeout(() => {
+    if (!state.data) return;
+    drawChart(state.data.daily);
+    renderChannelCard();
+  }, 150);
 });
 
 /* ---------------- boot ---------------- */
