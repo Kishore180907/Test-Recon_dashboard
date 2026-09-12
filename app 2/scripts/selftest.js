@@ -138,7 +138,7 @@ const ov = buildPayload({ orders, posTotals, metaInsights, ...range, exclusive: 
   check('every dollar that leaves Draft lands in Ecommerce or Assisted',
     near(gained, leftDraft), `${gained.toFixed(2)} vs ${leftDraft.toFixed(2)}`);
 
-  check('the non-POS total is unchanged by reclassification',
+check('the non-POS total is unchanged by reclassification',
     near(ex.totals.nonPosRevenue, withMap.totals.nonPosRevenue));
 
   /* The eBay fixture order, end to end. #27420 is a draft with both touchpoints
@@ -299,6 +299,120 @@ await releaseLock();
 const third = await acquireLock('c');
 await releaseLock();
 check('the sync lock keeps two runs from overlapping', first && !second && third);
+
+/* ---- the per-row day the channel breakdown buckets by ----------------------
+ * Each drill-down row carries its own store-local day. The "Ecommerce by
+ * channel" chart groups rows by it and draws them against the daily series, so
+ * if the two ever disagreed a line would sit under the wrong date. Deriving the
+ * day in the browser instead would use the VIEWER's timezone and do exactly
+ * that for anyone outside America/New_York.
+ * -------------------------------------------------------------------------- */
+{
+  const rows = ['online', 'assisted', 'draft'].flatMap((k) => ex.buckets[k].orders);
+
+  check('every drill-down row carries a store-local day',
+    rows.every((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.day || '')));
+  check('the row day matches the timezone helper the series uses',
+    rows.every((o) => o.day === localDateOf(o.createdAt)));
+
+  const dayTotals = new Map();
+  for (const o of rows) dayTotals.set(o.day, (dayTotals.get(o.day) || 0) + o.netSale);
+
+  check('row days all fall inside the requested range',
+    [...dayTotals.keys()].every((d) => d >= range.start && d <= range.end));
+
+  const mismatched = ex.daily.filter((d) =>
+    !near(dayTotals.get(d.day) || 0, d.online + d.assisted + d.draft));
+  check('every day in the series matches the rows filed under it',
+    mismatched.length === 0,
+    mismatched.map((d) => d.day).join(' ') || 'all days agree');
+
+  const seriesTotal = ex.daily.reduce((t, d) => t + d.online + d.assisted + d.draft, 0);
+  const rowTotal = [...dayTotals.values()].reduce((t, v) => t + v, 0);
+  check('rows bucketed by their own day reproduce the daily series total',
+    near(seriesTotal, rowTotal), `${rowTotal.toFixed(2)} vs ${seriesTotal.toFixed(2)}`);
+}
+
+/* ---- the Ecommerce channel breakdown --------------------------------------
+ * The grouping behind the "Ecommerce by channel" chart. Folding, colour
+ * assignment and the label fallbacks all have edges worth pinning: the eBay
+ * fallback especially, since an eBay order carries no sales channel at all and
+ * would otherwise be labelled with its app name, "Draft Orders".
+ * -------------------------------------------------------------------------- */
+{
+  const { channelSeries, chLabel, CH_MAX_SERIES, CH_CAT } =
+    await import('../public/channels.js');
+
+  check('an eBay row is labelled eBay, not its "Draft Orders" app name',
+    chLabel({ fromEbay: true, channelName: 'Draft Orders', salesChannel: null }) === 'eBay');
+  check('a real sales channel is used as-is', chLabel({ salesChannel: 'Shop' }) === 'Shop');
+  check('a bare Draft Orders app name is not passed off as a channel',
+    chLabel({ channelName: 'Draft Orders' }) === 'Unattributed');
+  check('a row with no channel at all is grouped, not dropped',
+    chLabel({}) === 'Unattributed');
+
+  const days = ['2026-08-11', '2026-08-12', '2026-08-13'];
+  const rows = [];
+  // 11 channels, descending order counts, so the fold is exercised.
+  for (let c = 0; c < 11; c += 1) {
+    for (let n = 0; n < 11 - c; n += 1) {
+      rows.push({ day: days[n % days.length], netSale: 10 * (c + 1), salesChannel: `Ch${c}` });
+    }
+  }
+  const byOrders = channelSeries(rows, days, 'orders');
+  const byRevenue = channelSeries(rows, days, 'revenue');
+
+  check('channels past the cap fold into one "Other" series',
+    byOrders.length === CH_MAX_SERIES + 1, `${byOrders.length} series`);
+  check('the fold names how many it swallowed',
+    byOrders.some((c) => c.name === 'Other (4)'),
+    byOrders.map((c) => c.name).join(', '));
+  check('folding loses no orders',
+    byOrders.reduce((t, c) => t + c.total, 0) === rows.length);
+  check('folding loses no revenue',
+    near(byRevenue.reduce((t, c) => t + c.total, 0),
+      rows.reduce((t, r) => t + r.netSale, 0)));
+  check('no series is ever given a ninth colour',
+    byOrders.every((c) => CH_CAT.includes(c.color)));
+  check('colours are never reused within one chart',
+    new Set(byOrders.map((c) => c.color)).size === byOrders.length);
+
+  /* The rule the Orders/Revenue toggle must not break: colour follows the
+   * channel, never its rank. Compared per channel rather than by serialising
+   * the map — the two arrays are deliberately ordered differently, so key
+   * order says nothing about whether anything was repainted. */
+  const colourOf = (list) => new Map(list.map((c) => [c.name, c.color]));
+  const co = colourOf(byOrders), cr = colourOf(byRevenue);
+  const repainted = [...co.entries()].filter(([n, col]) => cr.get(n) !== col);
+  check('switching measure does not repaint a channel',
+    repainted.length === 0,
+    repainted.map(([n, col]) => `${n}: ${col} -> ${cr.get(n)}`).join(', ') || 'none repainted');
+  check('switching measure keeps the same set of channels',
+    co.size === cr.size && [...co.keys()].every((n) => cr.has(n)));
+  check('switching measure reorders the draw list by the new measure',
+    byRevenue[0].total >= byRevenue[byRevenue.length - 1].total);
+
+  check('every series carries one point per day',
+    byOrders.every((c) => c.points.length === days.length));
+  check('per-day points sum to the series total',
+    byOrders.every((c) => near(c.points.reduce((t, v) => t + v, 0), c.total)));
+  check('rows outside the plotted days are excluded',
+    channelSeries([{ day: '2020-01-01', netSale: 999, salesChannel: 'Ghost' }], days, 'orders')
+      .length === 0);
+  check('a single-day range still produces one point per series',
+    channelSeries(rows, [days[0]], 'orders').every((c) => c.points.length === 1));
+  check('an empty range yields no series', channelSeries(rows, [], 'orders').length === 0);
+
+  // Against the real fixture, the breakdown must reconcile with the tile.
+  const eco = ex.buckets.online.orders;
+  const real = channelSeries(eco, ex.daily.map((d) => d.day), 'revenue');
+  check('the channel breakdown reconciles with the Ecommerce tile',
+    near(real.reduce((t, c) => t + c.total, 0), ex.buckets.online.revenue),
+    `${real.reduce((t, c) => t + c.total, 0).toFixed(2)} vs ${ex.buckets.online.revenue.toFixed(2)}`);
+  check('the fixture eBay order shows up under eBay, not Draft Orders',
+    real.some((c) => c.name === 'eBay') && !real.some((c) => /draft/i.test(c.name)),
+    real.map((c) => c.name).join(', '));
+}
 
 /* ---- classification -------------------------------------------------------
  * An independent restatement of the whole rule, written out longhand so it can
