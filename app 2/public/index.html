@@ -372,6 +372,53 @@
   .head-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .ch-empty { margin: 6px 2px 2px; font-size: 12.5px; color: var(--text-muted); }
 
+  /* ---------- sell-through ---------- */
+  .st-strip { margin: 2px 0 12px; }
+  .st-note {
+    margin: 0 0 12px; font-size: 11.5px; line-height: 1.55; color: var(--text-muted);
+    max-width: 78ch;
+  }
+  .st-note b { color: var(--text-secondary); font-weight: 600; }
+  .st-empty { margin: 10px 2px 2px; font-size: 12.5px; color: var(--text-muted); }
+
+  /* The band is carried by a dot plus the WORD, never colour alone.
+     --band is set on the cell, not on the dot, so the dot and the bar beneath
+     it read as one thing — set on the dot alone the bar fell back to the
+     default blue and a "Below benchmark" row showed a red dot over a blue bar. */
+  .band-cell.excellent { --band: var(--good); }
+  .band-cell.healthy   { --band: var(--series-online); }
+  .band-cell.luxury    { --band: var(--warning); }
+  .band-cell.watch     { --band: var(--critical); }
+  .band { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .band i { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--band, var(--text-muted)); }
+  .band .pct { font-variant-numeric: tabular-nums; font-weight: 620; }
+  .band .word { font-size: 10.5px; color: var(--text-muted); }
+
+  /* A bar under the number, so the rate is readable without decoding a hue. */
+  /* display:block matters — as an inline span the height collapses and the bar
+     never appears. max-width keeps it from stretching the whole column. */
+  .ratebar {
+    display: block; max-width: 140px; margin-top: 5px;
+    height: 3px; border-radius: 2px; background: var(--wash); overflow: hidden;
+  }
+  .ratebar i { display: block; height: 100%; background: var(--band, var(--text-muted)); }
+
+  #st-table td, #st-table th { vertical-align: top; }
+  #st-table td.num, #st-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .st-win { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+  .st-win .sub { display: block; font-size: 10.5px; color: var(--text-muted); }
+  .st-cap { font-weight: 620; }
+  .st-danger { color: var(--critical); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+    border: 1px solid var(--border); color: var(--text-secondary); background: var(--wash);
+  }
+  .chip.capital-stranded, .chip.returns { border-color: color-mix(in srgb, var(--critical) 45%, var(--border)); color: var(--critical); }
+  .chip.capital-heavy, .chip.slow { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); color: var(--warning); }
+  .chip.priced-under { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); color: var(--good); }
+
   /* Series identity is never colour alone: every legend entry pairs its swatch
      with the channel name, and the chart direct-labels each line's end. */
   #ch-legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -669,6 +716,8 @@
 
     <div class="spacer"></div>
 
+    <button class="btn" id="st-open" aria-expanded="false" aria-controls="st-card"
+            title="Sell-through rate by brand, with days of stock left and capital on hand">Sell-through</button>
     <button class="btn" id="pause">Pause</button>
     <button class="btn" id="refresh" title="Pull anything new from Shopify right now, instead of waiting for the next scheduled sync">Refresh now</button>
     <button class="btn" id="theme">Light</button>
@@ -726,6 +775,57 @@
       </div>
     </div>
     <svg id="chart" role="img" aria-label="Daily revenue by bucket"></svg>
+  </div>
+
+  <!-- Opened from the Sell-through button in the controls bar. The only part of
+       this dashboard that reads inventory rather than orders, so it is loaded
+       on demand from its own endpoint and is allowed to fail on its own. -->
+  <div class="card" id="st-card" hidden>
+    <div class="card-head">
+      <div>
+        <div class="card-title">Sell-through by brand</div>
+        <div class="card-sub" id="st-sub">Loading…</div>
+      </div>
+      <div class="head-tools">
+        <div class="seg" id="st-window" role="group" aria-label="Velocity window">
+          <button type="button" data-days="30" aria-pressed="true">30d</button>
+          <button type="button" data-days="60" aria-pressed="false">60d</button>
+          <button type="button" data-days="90" aria-pressed="false">90d</button>
+        </div>
+        <input type="search" id="st-search" placeholder="Filter brand…" aria-label="Filter brands" />
+        <button class="btn" id="st-refresh" title="Rebuild from Shopify instead of using the cached report">Rebuild</button>
+        <button class="btn" id="st-close">Close</button>
+      </div>
+    </div>
+
+    <div class="strip st-strip" id="st-totals"></div>
+
+    <p class="st-note">
+      <b>Lifetime</b> is what the benchmark bands grade — it is the share of everything
+      ever stocked that has sold. The <b>window</b> column is velocity over the days you
+      pick and is deliberately <em>not</em> graded: measured over 30 days against standing
+      stock, a healthy brand still reads single digits, and grading that would mark the
+      whole book as failing.
+    </p>
+
+    <div class="tbl-scroll">
+      <table id="st-table">
+        <thead>
+          <tr>
+            <th data-sort="brand">Brand</th>
+            <th data-sort="lifetimeRate">Lifetime<span class="arr"></span></th>
+            <th data-sort="windowRate">Window<span class="arr"></span></th>
+            <th data-sort="daysRemaining" class="num">Days left<span class="arr"></span></th>
+            <th data-sort="unitsOnHand" class="num">On hand<span class="arr"></span></th>
+            <th data-sort="capitalOnHand" class="num">Capital<span class="arr"></span></th>
+            <th data-sort="returnRate" class="num">Returns<span class="arr"></span></th>
+            <th>Flags</th>
+          </tr>
+        </thead>
+        <tbody id="st-body"></tbody>
+      </table>
+    </div>
+    <p class="st-empty" id="st-empty" hidden></p>
   </div>
 
   <!-- Opened from the Ecommerce legend entry above. One line per sales channel,
@@ -1555,6 +1655,161 @@ function showChannelTip(e, day, series, i, money) {
   tip.style.opacity = '1';
 }
 
+/* ===========================================================================
+ *  SELL-THROUGH BY BRAND
+ *  -------------------------------------------------------------------------
+ *  Opened from the Sell-through button. The only panel here that reads
+ *  INVENTORY rather than orders, which is why it has its own endpoint and its
+ *  own failure mode — everything else on the page works whether or not this
+ *  loads.
+ *
+ *  Two sell-through numbers, kept apart on purpose. The benchmark bands grade
+ *  LIFETIME only; the window column is velocity and is left ungraded, because
+ *  over 30 days against standing stock even a healthy brand reads single
+ *  digits and colouring that red would condemn the whole book. See
+ *  lib/sellthrough.js for the arithmetic behind that.
+ * ======================================================================== */
+const stState = { open: false, days: 30, sort: 'capitalOnHand', dir: -1, data: null, loading: false };
+
+const pct = (v, dp = 1) => (v == null ? '—' : `${(v * 100).toFixed(dp)}%`);
+const compactMoney = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+  if (v >= 1e3) return `$${Math.round(v / 1e3)}k`;
+  return `$${Math.round(v)}`;
+};
+
+async function loadSellThrough(force = false) {
+  if (stState.loading) return;
+  stState.loading = true;
+  $('#st-sub').textContent = force ? 'Rebuilding from Shopify…' : 'Loading…';
+  try {
+    /* Inventory is a snapshot of right now, but the rolling windows end
+     * wherever the page's range ends, so the two stay in step. state.end is
+     * set from /api/config before the first render, so it is always present;
+     * state.today is the fallback for the same reason. */
+    const end = state.end || state.today;
+    const qs = `end=${encodeURIComponent(end)}${force ? '&refresh=1' : ''}`;
+    const res = await fetch(`/api/sellthrough?${qs}`, { credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    if (!body.available) {
+      stState.data = null;
+      $('#st-sub').textContent = '';
+      $('#st-totals').innerHTML = '';
+      $('#st-body').innerHTML = '';
+      showStEmpty('Shopify Analytics is not available on this plan, so inventory cannot be read.');
+      return;
+    }
+    stState.data = body;
+    renderSellThrough();
+  } catch (err) {
+    stState.data = null;
+    $('#st-sub').textContent = '';
+    $('#st-totals').innerHTML = '';
+    $('#st-body').innerHTML = '';
+    showStEmpty(`Could not load sell-through. ${err.message}`);
+  } finally {
+    stState.loading = false;
+  }
+}
+
+function showStEmpty(msg) {
+  const el = $('#st-empty');
+  el.hidden = false;
+  el.textContent = msg;
+}
+
+function renderSellThrough() {
+  const d = stState.data;
+  if (!d) return;
+  $('#st-empty').hidden = true;
+
+  const age = d.builtAt ? `${fmtAge(Date.now() - d.builtAt)} old` : '';
+  const src = d.stale ? `cached, ${age} — Shopify was unreachable`
+    : d.cached ? `cached, ${age}` : 'just read from Shopify';
+  $('#st-sub').textContent =
+    `${d.brands.length} brands · inventory as of ${fmtDay(d.end)} · ${src}`;
+
+  const t = d.totals;
+  $('#st-totals').innerHTML = [
+    ['Capital on hand', compactMoney(t.capitalOnHand)],
+    ['Units on hand', int(t.unitsOnHand)],
+    ['Store lifetime sell-through', pct(t.lifetimeRate)],
+    ['Return rate', pct(t.returnRate)],
+  ].map(([k, v]) => `${esc(k)} <b>${esc(v)}</b>`).join('');
+
+  renderStRows();
+}
+
+function renderStRows() {
+  const d = stState.data;
+  if (!d) return;
+  const days = String(stState.days);
+  const q = ($('#st-search').value || '').trim().toLowerCase();
+
+  const rows = d.brands
+    .filter((b) => !q || b.brand.toLowerCase().includes(q))
+    .map((b) => ({ ...b, windowRate: b.windows[days]?.rate ?? null,
+                   windowSold: b.windows[days]?.unitsSold ?? 0 }));
+
+  const key = stState.sort;
+  rows.sort((a, x) => {
+    const av = key === 'brand' ? a.brand.toLowerCase() : (a[key] ?? -Infinity);
+    const xv = key === 'brand' ? x.brand.toLowerCase() : (x[key] ?? -Infinity);
+    if (av < xv) return -1 * stState.dir;
+    if (av > xv) return 1 * stState.dir;
+    return 0;
+  });
+
+  $$('#st-table thead th').forEach((th) => {
+    const a = th.querySelector('.arr');
+    if (a) a.textContent = th.dataset.sort === key ? (stState.dir < 0 ? ' ▾' : ' ▴') : '';
+  });
+
+  if (!rows.length) {
+    $('#st-body').innerHTML = '';
+    showStEmpty(q ? `No brand matches “${q}”.` : 'No inventory reported.');
+    return;
+  }
+  $('#st-empty').hidden = true;
+
+  const bandWord = Object.fromEntries((d.bands || []).map((b) => [b.key, b.label]));
+  const bandNote = Object.fromEntries((d.bands || []).map((b) => [b.key, b.note]));
+
+  $('#st-body').innerHTML = rows.map((b) => {
+    const lifePctW = Math.max(0, Math.min(100, (b.lifetimeRate ?? 0) * 100));
+    const slow = (b.daysRemaining ?? 0) >= 180;
+    const hiRet = b.returnRate != null && b.returnRate >= 0.10;
+    return `<tr>
+      <td><b>${esc(b.brand)}</b></td>
+      <td class="band-cell ${esc(b.band || '')}">
+        <span class="band" title="${esc(bandNote[b.band] || '')}">
+          <i></i><span class="pct">${pct(b.lifetimeRate)}</span>
+          <span class="word">${esc(bandWord[b.band] || '')}</span>
+        </span>
+        <span class="ratebar"><i style="width:${lifePctW.toFixed(1)}%"></i></span>
+      </td>
+      <td class="st-win">${pct(b.windowRate)}<span class="sub">${int(b.windowSold)} units · ${stState.days}d</span></td>
+      <td class="num ${slow ? 'st-danger' : ''}">${b.daysRemaining == null ? '—' : int(Math.round(b.daysRemaining))}</td>
+      <td class="num">${int(b.unitsOnHand)}</td>
+      <td class="num st-cap">${compactMoney(b.capitalOnHand)}</td>
+      <td class="num ${hiRet ? 'st-danger' : ''}">${pct(b.returnRate)}</td>
+      <td><div class="chips">${b.flags.map((f) =>
+        `<span class="chip ${esc(f.key)}" title="${esc(f.detail)}">${esc(f.label)}</span>`).join('')}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function fmtAge(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return 'moments';
+  if (m < 60) return `${m} min`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} hr` : `${Math.round(h / 24)} d`;
+}
+
 function niceMax(v) {
   const mag = 10 ** Math.floor(Math.log10(v));
   const scaled = v / mag;
@@ -1746,6 +2001,40 @@ $$('#ch-metric button').forEach((btn) => btn.addEventListener('click', () => {
   $$('#ch-metric button').forEach((b) =>
     b.setAttribute('aria-pressed', String(b === btn)));
   renderChannelCard();
+}));
+
+/* ---- sell-through by brand ---- */
+$('#st-open').addEventListener('click', () => {
+  stState.open = !stState.open;
+  $('#st-open').setAttribute('aria-expanded', String(stState.open));
+  $('#st-card').hidden = !stState.open;
+  if (stState.open) {
+    // Fetched on first open and then kept, so toggling the panel shut and open
+    // again does not spend another five ShopifyQL queries.
+    if (!stState.data) loadSellThrough(false);
+    $('#st-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+});
+$('#st-close').addEventListener('click', () => {
+  stState.open = false;
+  $('#st-open').setAttribute('aria-expanded', 'false');
+  $('#st-card').hidden = true;
+});
+$('#st-refresh').addEventListener('click', () => loadSellThrough(true));
+$('#st-search').addEventListener('input', renderStRows);
+$$('#st-window button').forEach((btn) => btn.addEventListener('click', () => {
+  stState.days = Number(btn.dataset.days);
+  $$('#st-window button').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b === btn)));
+  renderStRows();
+}));
+$$('#st-table thead th[data-sort]').forEach((th) => th.addEventListener('click', () => {
+  const key = th.dataset.sort;
+  // Same column flips direction; a new column starts descending, except the
+  // brand name, where A-Z is the useful first press.
+  if (stState.sort === key) stState.dir *= -1;
+  else { stState.sort = key; stState.dir = key === 'brand' ? 1 : -1; }
+  renderStRows();
 }));
 
 $('#refresh').addEventListener('click', syncNow);
