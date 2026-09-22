@@ -40,6 +40,7 @@ const handlers = {
   '/api/journey': (await import('../netlify/functions/journey.mjs')).default,
   '/api/channels': (await import('../netlify/functions/channels.mjs')).default,
   '/api/sellthrough': (await import('../netlify/functions/sellthrough.mjs')).default,
+  '/api/brand-trend': (await import('../netlify/functions/brandtrend.mjs')).default,
   '/api/login': (await import('../netlify/functions/login.mjs')).default,
   '/api/sync-now': (await import('../netlify/functions/sync-now.mjs')).default,
   '/api/backfill': (await import('../netlify/functions/backfill-background.mjs')).default,

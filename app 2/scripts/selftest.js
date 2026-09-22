@@ -547,6 +547,142 @@ check('the sync lock keeps two runs from overlapping', first && !second && third
   })());
 }
 
+/* ---- per-brand weekly trend ----------------------------------------------
+ * The chart that opens when a brand row is clicked. Two things carry real risk
+ * here: a vendor name reaching a ShopifyQL string literal, and the merge of two
+ * separately-fetched timeseries onto the right weeks.
+ * -------------------------------------------------------------------------- */
+{
+  const { escapeVendor, shapeTrend, NO_BRAND, TREND_DAYS } =
+    await import('../lib/brandtrend.js');
+  const { SAMPLE_TREND } = await import('../fixtures/sample-trend.js');
+  const { SAMPLE_SELLTHROUGH: PANEL } = await import('../fixtures/sample-sellthrough.js');
+
+  // --- injection ------------------------------------------------------------
+  check('an ordinary brand name passes through untouched',
+    escapeVendor('Chrome Hearts') === 'Chrome Hearts');
+  check("an apostrophe is doubled, not stripped",
+    escapeVendor("Levi's") === "Levi''s");
+  check('a quote-and-clause injection is neutralised by doubling', (() => {
+    // The shape that would close the literal and bolt on a second predicate.
+    const evil = "x' OR product_vendor != '";
+    const out = escapeVendor(evil);
+    // Doubling must leave no lone quote that can terminate the literal.
+    return out !== null && (out.match(/'/g) || []).length % 2 === 0;
+  })());
+  check('a newline in a brand name is refused', escapeVendor('a\nb') === null);
+  check('a backslash in a brand name is refused', escapeVendor('a\\b') === null);
+  check('a control character in a brand name is refused', escapeVendor('a\u0000b') === null);
+  check('an empty or whitespace brand is refused',
+    escapeVendor('') === null && escapeVendor('   ') === null && escapeVendor(null) === null);
+  check('an absurdly long brand is refused', escapeVendor('x'.repeat(201)) === null);
+
+  // --- merging --------------------------------------------------------------
+  check('the two series merge by week, not by position', (() => {
+    /* The sales series is deliberately missing the middle week — a brand that
+     * shipped units but booked no revenue that week. Zipped by index, every
+     * later sales figure would land one week early. */
+    const t = shapeTrend({
+      brand: 'T', end: '2026-09-21', since: '2026-06-24',
+      invRows: [
+        { week: '2026-09-07', ending_inventory_units: 10, inventory_units_sold: 2, sell_through_rate: 0.17 },
+        { week: '2026-09-14', ending_inventory_units: 8, inventory_units_sold: 2, sell_through_rate: 0.2 },
+        { week: '2026-09-21', ending_inventory_units: 5, inventory_units_sold: 3, sell_through_rate: 0.38 },
+      ],
+      salesRows: [
+        { week: '2026-09-07', gross_sales: 200, net_sales: 200, sales_reversals: 0 },
+        { week: '2026-09-21', gross_sales: 300, net_sales: 250, sales_reversals: -50 },
+      ],
+    });
+    const byWeek = Object.fromEntries(t.weeks.map((w) => [w.week, w]));
+    return t.weeks.length === 3
+      && byWeek['2026-09-14'].netSales === 0
+      && byWeek['2026-09-21'].netSales === 250;
+  })());
+
+  check('weeks come back in date order', (() => {
+    const t = shapeTrend({
+      brand: 'T', end: '2026-09-21',
+      invRows: [
+        { week: '2026-09-21', ending_inventory_units: 1, inventory_units_sold: 1 },
+        { week: '2026-09-07', ending_inventory_units: 3, inventory_units_sold: 1 },
+        { week: '2026-09-14', ending_inventory_units: 2, inventory_units_sold: 1 },
+      ],
+    });
+    return t.weeks.map((w) => w.week).join(',') === '2026-09-07,2026-09-14,2026-09-21';
+  })());
+
+  check('reversals are stored as a magnitude, however Shopify signs them', (() => {
+    const t = shapeTrend({
+      brand: 'T', end: '2026-09-21',
+      invRows: [{ week: '2026-09-21', ending_inventory_units: 1, inventory_units_sold: 1 }],
+      salesRows: [{ week: '2026-09-21', gross_sales: 100, net_sales: 80, sales_reversals: -20 }],
+    });
+    return t.weeks[0].reversals === 20 && Math.abs(t.totals.returnRate - 0.2) < 1e-9;
+  })());
+
+  check('a brand that sold nothing reports no return rate rather than zero', (() => {
+    const t = shapeTrend({
+      brand: 'T', end: '2026-09-21',
+      invRows: [{ week: '2026-09-21', ending_inventory_units: 40, inventory_units_sold: 0 }],
+      salesRows: [],
+    });
+    return t.totals.returnRate === null && t.totals.unitsSold === 0;
+  })());
+
+  check('the stock endpoints come from the first and last week', (() => {
+    const t = SAMPLE_TREND('Chrome Hearts');
+    return t.totals.startOnHand === 684 && t.totals.endOnHand === 590;
+  })());
+
+  check('shaping survives no rows at all', (() => {
+    const t = shapeTrend({ brand: 'T', end: '2026-09-21', invRows: null, salesRows: null });
+    return t.weeks.length === 0 && t.totals.startOnHand === null && t.totals.returnRate === null;
+  })());
+
+  check('a row with no week key is skipped rather than keyed as blank', (() => {
+    const t = shapeTrend({
+      brand: 'T', end: '2026-09-21',
+      invRows: [{ ending_inventory_units: 5, inventory_units_sold: 1 },
+                { week: '2026-09-21', ending_inventory_units: 4, inventory_units_sold: 1 }],
+    });
+    return t.weeks.length === 1 && t.weeks[0].week === '2026-09-21';
+  })());
+
+  // --- the fixture ----------------------------------------------------------
+  {
+    const ch = SAMPLE_TREND('Chrome Hearts');
+    check('the fixture holds a full quarter of weeks', ch.weeks.length === 14,
+      `${ch.weeks.length} weeks`);
+    check('the fixture reproduces the live units-sold total',
+      ch.totals.unitsSold === 206, String(ch.totals.unitsSold));
+    check('TREND_DAYS covers a quarter', TREND_DAYS === 90);
+
+    /* The whole reason the chart plots two lines: the table's lifetime rate for
+     * Chrome Hearts reads a comfortable 68.8%, while the stock behind it barely
+     * moves. If these ever agree, the second line has stopped earning its place. */
+    const sold = ch.totals.unitsSold;
+    const stockFall = ch.totals.startOnHand - ch.totals.endOnHand;
+    check('units sold and stock drawn-down are different stories',
+      sold > 0 && stockFall > 0 && sold > stockFall,
+      `${sold} sold vs ${stockFall} off the shelf`);
+  }
+
+  check('the blank-vendor group reports why it cannot be charted', (() => {
+    const t = SAMPLE_TREND(NO_BRAND);
+    return t.unavailable === 'no-vendor' && t.weeks.length === 0;
+  })());
+
+  check('every brand in the panel is clickable offline', (() => {
+    // The fixture must answer for any brand, or the offline panel has rows that
+    // open into an error nobody can reproduce without live credentials.
+    return PANEL('2026-09-22').brands.every((b) => {
+      const t = SAMPLE_TREND(b.brand);
+      return b.brand === 'No brand set' ? t.unavailable === 'no-vendor' : t.weeks.length > 0;
+    });
+  })());
+}
+
 /* ---- classification -------------------------------------------------------
  * An independent restatement of the whole rule, written out longhand so it can
  * disagree with bucketOf() if either drifts. Order matters and mirrors
