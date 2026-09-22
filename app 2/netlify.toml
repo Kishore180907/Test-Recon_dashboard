@@ -51,6 +51,11 @@
 [functions."sellthrough"]
   timeout = 26
 
+# Two queries for one brand, on click. Faster than the panel itself, but it is
+# still the analytics endpoint, so it gets more than the default.
+[functions."brandtrend"]
+  timeout = 20
+
 [[headers]]
   for = "/*"
   [headers.values]

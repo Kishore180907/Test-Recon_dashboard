@@ -116,6 +116,18 @@ Returns are measured in **money, not units**: ShopifyQL's inventory dataset has 
 
 A blank `product_vendor` is a real group — it had $10k of net sales — so it is labelled "No brand set" rather than dropped.
 
+#### Clicking a brand: thirteen weeks
+
+A percentage cannot say which direction a brand is going, and that is usually the real question. A brand at 40% clearing thirty units a week needs nothing done to it; a brand at 40% that has not moved since July needs a markdown. So clicking any row expands a chart directly beneath it — `lib/brandtrend.js`, served by `/api/brand-trend`.
+
+**Two axes, on purpose.** Units sold per week is a number in the tens; units still on hand is a number in the hundreds. On a single scale the sold line lies flat on the floor and says nothing. Sold reads off the **left** axis, stock off the **right**, each axis tinted to its own series. The stock line is dashed and sits behind — context for the solid line, not a competing claim. A Revenue toggle swaps net sales in for units on the left axis; stock stays put as the backdrop.
+
+The right axis is **zero-based**, which is why Chrome Hearts' stock line looks nearly flat: it moved from 684 to 590 units across a quarter in which 206 units sold. That flatness is the finding, not a rendering problem — zooming the axis to 590–684 would dramatise a 14% drawdown into a cliff. The exact figure is spelled out in the subtitle instead.
+
+Two ShopifyQL queries per brand, cached in Blobs one key per brand (`TREND_TTL_MS`, one hour). Fetched **on click** rather than with the panel: 255 brands would mean 500 queries up front to serve the handful anyone opens. The requested `end` date lives inside the record rather than in the key — putting it in the key would mint a fresh blob every day and nothing would ever delete them.
+
+**The vendor name reaches a ShopifyQL string literal**, which makes this the one place in the app where user-controlled text meets a query language. `escapeVendor()` doubles single quotes and refuses anything carrying a backslash, a double quote, a newline or a control character. A brand nobody can chart is a far smaller problem than a query somebody else gets to finish writing. The blank-vendor group cannot be charted at all — `product_vendor = ''` matches nothing in ShopifyQL — so it says so rather than drawing a flat line at zero that reads as "this brand is dead".
+
 ### Reconciling against Shopify Analytics
 
 The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopify's `net_sales` is gross minus discounts minus returns, *before* shipping and tax, and counts unpaid draft invoices at full value. The two will not match, and the gap is roughly the size of your open drafts.
