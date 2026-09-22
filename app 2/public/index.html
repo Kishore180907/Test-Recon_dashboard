@@ -410,6 +410,44 @@
   .st-cap { font-weight: 620; }
   .st-danger { color: var(--critical); }
 
+  /* Rows are clickable: each one opens its own chart directly beneath it.
+     The affordance has to survive on a table with 255 rows, so it is a cursor
+     change plus a hover wash plus a caret that rotates when open — never the
+     hover alone, which is invisible to anyone arriving by keyboard. */
+  #st-table tbody tr.st-row { cursor: pointer; }
+  #st-table tbody tr.st-row:hover > td { background: var(--wash); }
+  #st-table tbody tr.st-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  #st-table tbody tr.st-row.open > td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .st-caret {
+    display: inline-block; width: 9px; margin-right: 5px; color: var(--text-muted);
+    transition: transform .15s; transform-origin: 50% 55%;
+  }
+  tr.st-row.open .st-caret { transform: rotate(90deg); color: var(--accent); }
+
+  /* The expansion row. It sits inside the table, so it inherits the column
+     widths — colspan plus its own padding rather than a nested layout. */
+  tr.st-detail > td { padding: 0 0 14px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  /* The table scrolls sideways on a narrow screen, and the expansion row is as
+     wide as the table — so on a phone the chart would start somewhere off to
+     the right and have to be hunted for. Sticking the contents to the left edge
+     of the scroll viewport keeps the chart where the reader is; its width is
+     set in JS from the scroller, because the cell it sits in is far wider. */
+  .bt-wrap { padding: 12px 12px 2px; position: sticky; left: 0; }
+  .bt-head {
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: 10px; margin-bottom: 8px;
+  }
+  .bt-title { font-weight: 640; font-size: 13px; }
+  .bt-sub { font-size: 11px; color: var(--text-muted); }
+  .bt-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 2px 0 6px; font-size: 11px; }
+  .bt-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  .bt-legend i { width: 10px; height: 3px; border-radius: 2px; flex: none; }
+  .bt-legend i.dash { background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 6px); }
+  .bt-chart { width: 100%; height: 210px; display: block; }
+  .bt-chart text { fill: var(--text-muted); font-size: 10.5px; }
+  .bt-chart .bt-axis { font-size: 10.5px; }
+  .bt-msg { margin: 6px 2px; font-size: 12px; color: var(--text-muted); }
+
   .chips { display: flex; flex-wrap: wrap; gap: 5px; }
   .chip {
     font-size: 10.5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
@@ -806,6 +844,8 @@
       pick and is deliberately <em>not</em> graded: measured over 30 days against standing
       stock, a healthy brand still reads single digits, and grading that would mark the
       whole book as failing.
+      <b>Click any brand</b> to open its last thirteen weeks — units sold against the
+      stock still sitting behind them.
     </p>
 
     <div class="tbl-scroll">
@@ -1778,12 +1818,19 @@ function renderStRows() {
   const bandWord = Object.fromEntries((d.bands || []).map((b) => [b.key, b.label]));
   const bandNote = Object.fromEntries((d.bands || []).map((b) => [b.key, b.note]));
 
+  /* Re-rendering the table destroys every row, so anything expanded inside it
+   * goes with them. Forget the open brand here rather than leaving btState
+   * pointing at a row that no longer exists — otherwise clicking that brand
+   * again reads as "already open" and does nothing. */
+  btState.brand = null;
+
   $('#st-body').innerHTML = rows.map((b) => {
     const lifePctW = Math.max(0, Math.min(100, (b.lifetimeRate ?? 0) * 100));
     const slow = (b.daysRemaining ?? 0) >= 180;
     const hiRet = b.returnRate != null && b.returnRate >= 0.10;
-    return `<tr>
-      <td><b>${esc(b.brand)}</b></td>
+    return `<tr class="st-row" data-brand="${esc(b.brand)}" tabindex="0" role="button"
+                aria-expanded="false" title="Show this brand week by week">
+      <td><span class="st-caret" aria-hidden="true">▸</span><b>${esc(b.brand)}</b></td>
       <td class="band-cell ${esc(b.band || '')}">
         <span class="band" title="${esc(bandNote[b.band] || '')}">
           <i></i><span class="pct">${pct(b.lifetimeRate)}</span>
@@ -1800,6 +1847,246 @@ function renderStRows() {
         `<span class="chip ${esc(f.key)}" title="${esc(f.detail)}">${esc(f.label)}</span>`).join('')}</div></td>
     </tr>`;
   }).join('');
+}
+
+/* ===========================================================================
+ *  ONE BRAND, WEEK BY WEEK
+ *  -------------------------------------------------------------------------
+ *  Clicking a row in the table above opens this directly beneath it. The
+ *  percentage in the table says how much of a brand has sold; it cannot say
+ *  which way the brand is going, and that is usually the actual question.
+ *
+ *  TWO AXES, ON PURPOSE. Units sold per week is a number in the tens; units
+ *  still on hand is a number in the hundreds. On one scale the sold line lies
+ *  flat on the floor and tells you nothing. So sold reads off the LEFT axis and
+ *  stock off the RIGHT, each axis tinted to its own series so there is no
+ *  guessing which line belongs to which. The stock line is dashed and sits
+ *  behind — it is context for the solid line, not a competing claim.
+ * ======================================================================== */
+const btState = { brand: null, metric: 'units', data: null, loading: false, seq: 0 };
+
+const BT_SOLD = 'var(--cat-1)';   // what left the building — the line being read
+const BT_STOCK = 'var(--cat-4)';  // what is still here — the backdrop
+
+/** Open the chart under `tr`, or close it if that brand is already showing. */
+async function toggleBrandTrend(tr) {
+  const brand = tr.dataset.brand;
+  if (!brand) return;
+
+  if (btState.brand === brand) { closeBrandTrend(); return; }
+  closeBrandTrend();
+
+  btState.brand = brand;
+  btState.metric = 'units';
+  btState.data = null;
+  tr.classList.add('open');
+  tr.setAttribute('aria-expanded', 'true');
+
+  const detail = document.createElement('tr');
+  detail.className = 'st-detail';
+  detail.id = 'bt-detail';
+  const cols = $$('#st-table thead th').length;
+  detail.innerHTML = `<td colspan="${cols}"><div class="bt-wrap">
+      <div class="bt-head"><div class="bt-title">${esc(brand)}</div></div>
+      <p class="bt-msg" id="bt-msg">Reading ${esc(brand)} week by week…</p>
+    </div></td>`;
+  tr.after(detail);
+  const scroller0 = $('#st-card .tbl-scroll');
+  if (scroller0) detail.querySelector('.bt-wrap').style.width = `${scroller0.clientWidth}px`;
+
+  /* Every open bumps a sequence number. Clicking through several brands while
+   * the first is still in flight would otherwise let a slow early response
+   * arrive last and paint itself over whichever brand is actually open. */
+  const seq = (btState.seq += 1);
+  const end = state.end || state.today;
+
+  try {
+    const res = await fetch(
+      `/api/brand-trend?brand=${encodeURIComponent(brand)}&end=${encodeURIComponent(end)}`,
+      { credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+    if (seq !== btState.seq || btState.brand !== brand) return;
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+
+    if (!body.available) { btMessage('Shopify could not report history for this brand.'); return; }
+    if (body.unavailable === 'no-vendor') {
+      btMessage('These products have no brand set in Shopify, so there is nothing to chart them by.');
+      return;
+    }
+    if (!body.weeks || !body.weeks.length) { btMessage('No weekly history in this range.'); return; }
+
+    btState.data = body;
+    renderBrandTrend();
+  } catch (err) {
+    if (seq !== btState.seq) return;
+    btMessage(`Could not load this brand. ${err.message}`);
+  }
+}
+
+function btMessage(msg) {
+  const el = $('#bt-msg');
+  if (el) el.textContent = msg;
+}
+
+function closeBrandTrend() {
+  $('#bt-detail')?.remove();
+  $$('#st-table tbody tr.st-row.open').forEach((r) => {
+    r.classList.remove('open');
+    r.setAttribute('aria-expanded', 'false');
+  });
+  btState.brand = null;
+  btState.data = null;
+}
+
+function renderBrandTrend() {
+  const d = btState.data;
+  const wrap = $('#bt-detail .bt-wrap');
+  if (!d || !wrap) return;
+
+  const money = btState.metric === 'revenue';
+  const t = d.totals || {};
+
+  /* Pin the contents to the visible width of the horizontal scroller rather
+   * than the cell, which is as wide as the whole table. */
+  const scroller = $('#st-card .tbl-scroll');
+  if (scroller) wrap.style.width = `${scroller.clientWidth}px`;
+  const moved = t.startOnHand != null && t.endOnHand != null ? t.startOnHand - t.endOnHand : null;
+  const age = d.builtAt ? `${fmtAge(Date.now() - d.builtAt)} old` : '';
+  const src = d.stale ? `cached, ${age} — Shopify was unreachable`
+    : d.cached ? `cached, ${age}` : 'just read from Shopify';
+
+  wrap.innerHTML = `
+    <div class="bt-head">
+      <div>
+        <div class="bt-title">${esc(d.brand)} · week by week</div>
+        <div class="bt-sub">${esc(fmtDay(d.since))} – ${esc(fmtDay(d.end))} ·
+          ${int(t.unitsSold || 0)} units sold ·
+          ${money2(t.netSales || 0)} net${moved != null
+            ? ` · stock ${moved >= 0 ? 'down' : 'up'} ${int(Math.abs(moved))}` : ''} ·
+          ${esc(src)}</div>
+      </div>
+      <div class="seg" id="bt-metric" role="group" aria-label="Measure">
+        <button type="button" data-metric="units" aria-pressed="${!money}">Units</button>
+        <button type="button" data-metric="revenue" aria-pressed="${money}">Revenue</button>
+      </div>
+    </div>
+    <div class="bt-legend">
+      <span><i style="background:${BT_SOLD}"></i>${money ? 'Net sales' : 'Units sold'} (left)</span>
+      <span style="color:var(--cat-4)"><i class="dash"></i><span style="color:var(--text-secondary)">Units on hand (right)</span></span>
+    </div>
+    <svg class="bt-chart" id="bt-chart" role="img"></svg>`;
+
+  $$('#bt-metric button').forEach((b) => b.addEventListener('click', () => {
+    btState.metric = b.dataset.metric;
+    renderBrandTrend();
+  }));
+
+  drawBrandTrend(d, money);
+}
+
+function drawBrandTrend(d, money) {
+  const svg = $('#bt-chart');
+  if (!svg) return;
+  const weeks = d.weeks;
+  const W = svg.clientWidth || 720, H = 210;
+  const narrow = W < 560;
+  const M = { t: 12, r: narrow ? 42 : 54, b: 24, l: narrow ? 42 : 54 };
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('aria-label',
+    `${d.brand}: ${money ? 'net sales' : 'units sold'} per week against units still on hand`);
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const mk = (n, a = {}) => { const e = document.createElementNS(ns, n);
+    for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); return e; };
+
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const soldOf = (w) => (money ? w.netSales : w.unitsSold);
+
+  /* Each axis is scaled to its own series. niceMax needs a positive input, so a
+   * brand that sold nothing all quarter — there are several — gets a floor of 1
+   * rather than log10(0) and an axis of NaN. */
+  const soldMax = niceMax(Math.max(1, ...weeks.map(soldOf)));
+  const stockMax = niceMax(Math.max(1, ...weeks.map((w) => w.unitsOnHand)));
+
+  const yL = (v) => M.t + ih - (v / soldMax) * ih;
+  const yR = (v) => M.t + ih - (v / stockMax) * ih;
+  const x = (i) => (weeks.length === 1 ? M.l + iw / 2 : M.l + (iw * i) / (weeks.length - 1));
+
+  const axisMoney = (v) => (v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
+
+  for (const frac of [0, 0.5, 1]) {
+    const yv = M.t + ih - frac * ih;
+    svg.appendChild(mk('line', { x1: M.l, x2: M.l + iw, y1: yv, y2: yv,
+      stroke: frac === 0 ? 'var(--baseline)' : 'var(--grid)', 'stroke-width': 1 }));
+
+    const left = mk('text', { x: M.l - 7, y: yv + 4, 'text-anchor': 'end',
+      class: 'bt-axis', fill: BT_SOLD });
+    left.textContent = money ? axisMoney(soldMax * frac) : String(Math.round(soldMax * frac));
+    svg.appendChild(left);
+
+    const right = mk('text', { x: M.l + iw + 7, y: yv + 4, 'text-anchor': 'start',
+      class: 'bt-axis', fill: BT_STOCK });
+    right.textContent = String(Math.round(stockMax * frac));
+    svg.appendChild(right);
+  }
+
+  // Stock first, so the line that is actually being read sits on top of it.
+  const stockPath = weeks.map((w, i) =>
+    `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${yR(w.unitsOnHand).toFixed(1)}`).join(' ');
+  svg.appendChild(mk('path', { d: stockPath, fill: 'none', stroke: BT_STOCK,
+    'stroke-width': 1.75, 'stroke-dasharray': '4 4', 'stroke-linejoin': 'round' }));
+
+  const soldPath = weeks.map((w, i) =>
+    `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${yL(soldOf(w)).toFixed(1)}`).join(' ');
+  svg.appendChild(mk('path', { d: soldPath, fill: 'none', stroke: BT_SOLD,
+    'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+
+  if (weeks.length === 1) {
+    svg.appendChild(mk('circle', { cx: x(0), cy: yL(soldOf(weeks[0])), r: 4, fill: BT_SOLD }));
+    svg.appendChild(mk('circle', { cx: x(0), cy: yR(weeks[0].unitsOnHand), r: 4, fill: BT_STOCK }));
+  }
+
+  const crosshair = mk('line', { y1: M.t, y2: M.t + ih, stroke: 'var(--baseline)',
+    'stroke-width': 1, opacity: 0 });
+  svg.appendChild(crosshair);
+
+  const labelEvery = Math.max(1, Math.ceil(weeks.length / Math.max(1, Math.floor(iw / 62))));
+  const band = weeks.length > 1 ? iw / (weeks.length - 1) : iw;
+
+  weeks.forEach((w, i) => {
+    const hit = mk('rect', { x: x(i) - band / 2, y: M.t, width: band, height: ih, fill: 'transparent' });
+    hit.style.cursor = 'crosshair';
+    hit.addEventListener('mousemove', (e) => {
+      crosshair.setAttribute('x1', x(i)); crosshair.setAttribute('x2', x(i));
+      crosshair.setAttribute('opacity', '1');
+      showTrendTip(e, w, money);
+    });
+    hit.addEventListener('mouseleave', () => { crosshair.setAttribute('opacity', '0'); hideTip(); });
+    svg.appendChild(hit);
+
+    if (i % labelEvery === 0 || i === weeks.length - 1) {
+      const lb = mk('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', class: 'bt-axis' });
+      lb.textContent = fmtDay(w.week);
+      svg.appendChild(lb);
+    }
+  });
+}
+
+function showTrendTip(e, w, money) {
+  const tip = $('#tooltip');
+  const rows = money
+    ? [['Net sales', money2(w.netSales)], ['Returned', money2(w.reversals)],
+       ['Units sold', int(w.unitsSold)]]
+    : [['Units sold', int(w.unitsSold)], ['Net sales', money2(w.netSales)]];
+
+  tip.innerHTML =
+    `<div class="tt-day">Week of ${fmtDay(w.week)}</div>` +
+    rows.map(([k, v]) => `<div class="tt-row"><i style="background:${BT_SOLD}"></i>${k}<b>${v}</b></div>`).join('') +
+    `<div class="tt-row" style="margin-top:5px;border-top:1px solid var(--grid);padding-top:5px">` +
+    `<i style="background:${BT_STOCK}"></i>Still on hand<b>${int(w.unitsOnHand)}</b></div>`;
+  tip.style.left = `${e.clientX}px`;
+  tip.style.top = `${e.clientY}px`;
+  tip.style.opacity = '1';
 }
 
 function fmtAge(ms) {
@@ -2036,6 +2323,32 @@ $$('#st-table thead th[data-sort]').forEach((th) => th.addEventListener('click',
   else { stState.sort = key; stState.dir = key === 'brand' ? 1 : -1; }
   renderStRows();
 }));
+
+/* Row -> chart. Delegated, because renderStRows replaces every row on every
+ * sort, filter and window change, and per-row listeners would be re-bound
+ * hundreds of times for a table this size. */
+$('#st-body').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr.st-row');
+  if (tr) toggleBrandTrend(tr);
+});
+$('#st-body').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const tr = e.target.closest('tr.st-row');
+  if (!tr) return;
+  e.preventDefault();   // Space would otherwise scroll the page out from under it.
+  toggleBrandTrend(tr);
+});
+$('#st-close').addEventListener('click', closeBrandTrend);
+
+/* The chart is sized from the scroller, so a rotation or a resized window
+ * leaves it at the old width until it is redrawn. Debounced — resize fires
+ * continuously while a desktop window is being dragged. */
+let btResize;
+window.addEventListener('resize', () => {
+  if (!btState.data) return;
+  clearTimeout(btResize);
+  btResize = setTimeout(renderBrandTrend, 150);
+});
 
 $('#refresh').addEventListener('click', syncNow);
 $('#csv').addEventListener('click', exportCSV);
