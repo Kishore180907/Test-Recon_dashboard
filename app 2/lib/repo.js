@@ -215,6 +215,21 @@ export const setOrderChannels = (v) => setJSON(META, 'orderChannels', v);
 export const getSellThrough = () => getJSON(META, 'sellthrough');
 export const setSellThrough = (v) => setJSON(META, 'sellthrough', v);
 
+/* Per-brand weekly trend, one key per brand and overwritten in place.
+ *
+ * The requested end-date is stored INSIDE the record rather than in the key on
+ * purpose: putting it in the key would mint a fresh blob every day and leave
+ * the old ones behind forever, and nothing ever deletes them. One key per
+ * brand caps the store at the size of the catalogue, and a record whose `end`
+ * does not match what was asked for is simply treated as a miss.
+ *
+ * The brand name is percent-encoded because it is user-controlled text going
+ * into a storage key, and a name containing a slash would otherwise invent a
+ * nested path of its own. */
+const trendKey = (brand) => `trend/${encodeURIComponent(String(brand)).replace(/%/g, '~')}`;
+export const getBrandTrend = (brand) => getJSON(META, trendKey(brand));
+export const setBrandTrend = (brand, v) => setJSON(META, trendKey(brand), v);
+
 export const getWatermark = () => getJSON(META, 'watermark', { strong: true });
 export const setWatermark = (v) => setJSON(META, 'watermark', v);
 export const getBackfill = () => getJSON(META, 'backfill', { strong: true });
