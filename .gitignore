@@ -1,0 +1,7 @@
+# Installed by npm; never belongs in the repo.
+node_modules/
+
+# Local blob store written by the dev server and the test suites.
+.blobs/
+
+.DS_Store
