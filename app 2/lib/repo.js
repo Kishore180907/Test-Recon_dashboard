@@ -207,6 +207,14 @@ export async function pruneBefore(oldestDate) {
 export const getOrderChannels = () => getJSON(META, 'orderChannels', { strong: true });
 export const setOrderChannels = (v) => setJSON(META, 'orderChannels', v);
 
+/* The sell-through panel's cached report. Shopify's analytics endpoint
+ * rate-limits and the panel costs five ShopifyQL calls to build, so the result
+ * is kept here and re-served until it goes stale — see the endpoint for the
+ * TTL. Not strongly consistent on purpose: a slightly old inventory read is
+ * fine, and this is never part of a read-modify-write. */
+export const getSellThrough = () => getJSON(META, 'sellthrough');
+export const setSellThrough = (v) => setJSON(META, 'sellthrough', v);
+
 export const getWatermark = () => getJSON(META, 'watermark', { strong: true });
 export const setWatermark = (v) => setJSON(META, 'watermark', v);
 export const getBackfill = () => getJSON(META, 'backfill', { strong: true });
