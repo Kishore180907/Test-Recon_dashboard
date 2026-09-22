@@ -45,6 +45,12 @@
 [functions."channels"]
   timeout = 15
 
+# Five ShopifyQL queries, run one after another to stay under the analytics
+# rate limit. Only ever hit when someone opens the sell-through panel, and the
+# result is cached, so the slow path is the first open of the hour.
+[functions."sellthrough"]
+  timeout = 26
+
 [[headers]]
   for = "/*"
   [headers.values]

@@ -85,6 +85,37 @@ The match is a word-boundary `/\bebay\b/i`, so `Ebay`, `eBay Marketplace` and `M
 
 Fixture order `#27420` covers this end to end: a draft carrying "Credit to Erik" that must still land in Ecommerce.
 
+### Sell-through by brand
+
+The only part of this dashboard that reads **inventory** rather than orders. Stock on hand is simply not in the order stream — no amount of order history says what is still in the warehouse — so this comes from Shopify's `inventory` dataset over ShopifyQL, grouped by `product_vendor`.
+
+**Two sell-through numbers, kept apart on purpose.** Shopify computes it over whatever window you ask for:
+
+```
+units sold in window / (units sold in window + units still on hand)
+```
+
+The window does a lot of work in that formula. Measured over 30 days against roughly 6,000 units of standing stock, this store's *best* brand came out at 29.8% and most sat between 6% and 9%. Nothing was wrong — a month of sales is just small next to the shelf.
+
+The benchmark bands people quote (80%+ excellent, 60–80% healthy, 40–50% the luxury norm, under 40% trouble) were written for the whole life of the stock, not a rolling month. Graded against a 30-day number they condemn every brand in the building. So the panel fetches both:
+
+| | What it answers | Graded? |
+|---|---|---|
+| **Lifetime** (no date bounds) | Has this brand sold through what we bought? | Yes — this is what the bands judge |
+| **Window** (30/60/90 day) | Is it moving *now*? | **No, deliberately** |
+
+`bandFor()` in `lib/sellthrough.js` owns the thresholds; `STR_BANDS` is the single definition the UI and the tests share.
+
+**The money column matters more than the rate.** `capitalOnHand` is the retail value of what has not sold. Chrome Hearts posts a respectable 68.8% lifetime and still has **$1.69M** sitting at 348 days of stock; Louis Vuitton has $1.46M at 496 days. The percentage alone hides that entirely, which is why brands are ranked by capital rather than by rate.
+
+**Flags name combinations, not advice.** Each one is a condition only visible when two numbers are read together — stranded capital, slow moving, high returns, clearing fast. What to do about it is left to the reader by request. Thresholds are the exported constants at the bottom of `lib/sellthrough.js`.
+
+Returns are measured in **money, not units**: ShopifyQL's inventory dataset has no returned-quantity column and its sales dataset has no item-quantity column grouped by vendor, so the rate is `sales_reversals / gross_sales`. Chrome Hearts runs 12.1% — the "false positive" case where an item sells fast and comes straight back.
+
+`/api/sellthrough` is **cached in Blobs** with a one-hour TTL (`SELLTHROUGH_TTL_MS`). The panel costs five ShopifyQL queries to build and the analytics endpoint rate-limits hard; the queries run sequentially for the same reason. `?refresh=1` forces a rebuild, and if Shopify is unreachable the endpoint serves the stale report and says so rather than failing. Like `/api/channels`, it is kept out of `/api/data` so the dashboard renders whether or not inventory is reachable.
+
+A blank `product_vendor` is a real group — it had $10k of net sales — so it is labelled "No brand set" rather than dropped.
+
 ### Reconciling against Shopify Analytics
 
 The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopify's `net_sales` is gross minus discounts minus returns, *before* shipping and tax, and counts unpaid draft invoices at full value. The two will not match, and the gap is roughly the size of your open drafts.
