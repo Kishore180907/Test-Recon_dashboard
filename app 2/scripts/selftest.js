@@ -414,6 +414,139 @@ check('the sync lock keeps two runs from overlapping', first && !second && third
     real.map((c) => c.name).join(', '));
 }
 
+/* ---- sell-through by brand -------------------------------------------------
+ * The panel's whole reason for existing is that ONE sell-through number is not
+ * enough: the benchmark bands only fit the lifetime figure, and the windowed
+ * one has to stay out of their way. These pin that apart, along with the
+ * derived rates and the combination flags.
+ * -------------------------------------------------------------------------- */
+{
+  const { shapeBrands, bandFor, flagsFor, windowStart, STR_BANDS, STR_WINDOWS,
+          CAPITAL_AT_REST, SLOW_DAYS, HIGH_RETURN_RATE } =
+    await import('../lib/sellthrough.js');
+  const { SAMPLE_SELLTHROUGH } = await import('../fixtures/sample-sellthrough.js');
+
+  // --- the bands -----------------------------------------------------------
+  check('80% and over grades Excellent', bandFor(0.80).key === 'excellent');
+  check('the sweet spot grades Healthy',
+    bandFor(0.60).key === 'healthy' && bandFor(0.799).key === 'healthy');
+  check('the luxury band starts at 40%',
+    bandFor(0.40).key === 'luxury' && bandFor(0.599).key === 'luxury');
+  check('below 40% grades as under benchmark', bandFor(0.399).key === 'watch');
+  check('every band carries a label and an explanation',
+    STR_BANDS.every((b) => b.label && b.note));
+  check('a missing rate grades as nothing rather than as failing',
+    bandFor(null) === null && bandFor(undefined) === null);
+
+  // --- windows -------------------------------------------------------------
+  check('a 30-day window ends on the day asked for',
+    windowStart('2026-09-22', 30) === '2026-08-24', windowStart('2026-09-22', 30));
+  check('a 1-day window is that same day', windowStart('2026-09-22', 1) === '2026-09-22');
+  check('windows cross a month boundary correctly',
+    windowStart('2026-03-01', 30) === '2026-01-31', windowStart('2026-03-01', 30));
+
+  // --- shaping -------------------------------------------------------------
+  const rep = SAMPLE_SELLTHROUGH('2026-09-22');
+  const by = Object.fromEntries(rep.brands.map((b) => [b.brand, b]));
+
+  check('every brand carries a lifetime rate and a band',
+    rep.brands.every((b) => b.lifetimeRate != null && b.band));
+  check('every brand carries a value for each window',
+    rep.brands.every((b) => STR_WINDOWS.every((d) => b.windows[d] != null)));
+  check('brands are ranked by capital on hand, not by rate',
+    rep.brands[0].brand === 'Chrome Hearts', rep.brands[0].brand);
+
+  /* The finding the panel is built around: over 30 days the rate collapses,
+   * because a month of sales is small next to standing stock. If these ever
+   * converged, grading the window against the bands would start to look
+   * reasonable — and it is not. */
+  const ch = by['Chrome Hearts'];
+  check('lifetime and 30-day sell-through are far apart on deep stock',
+    ch.lifetimeRate > 0.6 && ch.windows['30'].rate < 0.15,
+    `lifetime ${(ch.lifetimeRate * 100).toFixed(1)}% vs 30d ${(ch.windows['30'].rate * 100).toFixed(1)}%`);
+  check('the window rate is never used to set the band',
+    ch.band === bandFor(ch.lifetimeRate).key && ch.band !== bandFor(ch.windows['30'].rate).key);
+
+  // --- derived numbers -----------------------------------------------------
+  check('return rate is reversals over gross',
+    near(ch.returnRate, ch.reversals / ch.grossSales),
+    `${(ch.returnRate * 100).toFixed(1)}%`);
+  check('reversals are stored as a magnitude, not a negative',
+    rep.brands.every((b) => b.reversals >= 0));
+  check('a brand with no sales in the window has no return rate, not zero',
+    rep.brands.every((b) => b.grossSales > 0 || b.returnRate === null));
+
+  check('the store-wide rate is weighted by units, not a mean of percentages',
+    near(rep.totals.lifetimeRate,
+      rep.totals.unitsSoldLifetime / (rep.totals.unitsSoldLifetime + rep.totals.unitsOnHand)));
+  {
+    const meanOfPercents =
+      rep.brands.reduce((t, b) => t + b.lifetimeRate, 0) / rep.brands.length;
+    check('the weighted rate actually differs from the unweighted mean',
+      !near(rep.totals.lifetimeRate, meanOfPercents),
+      `${(rep.totals.lifetimeRate * 100).toFixed(1)}% vs ${(meanOfPercents * 100).toFixed(1)}%`);
+  }
+  check('capital on hand totals the brands',
+    near(rep.totals.capitalOnHand,
+      rep.brands.reduce((t, b) => t + b.capitalOnHand, 0)));
+
+  // --- flags: the combinations --------------------------------------------
+  check('deep stock plus slow movement flags stranded capital',
+    flagsFor({ capitalOnHand: CAPITAL_AT_REST, daysRemaining: SLOW_DAYS, returnRate: 0 })
+      .some((f) => f.key === 'capital-stranded'));
+  check('big capital that is still moving is flagged as heavy, not stranded', (() => {
+    const f = flagsFor({ capitalOnHand: CAPITAL_AT_REST, daysRemaining: 30, returnRate: 0 });
+    return f.some((x) => x.key === 'capital-heavy') && !f.some((x) => x.key === 'capital-stranded');
+  })());
+  check('slow movement on a small book is flagged as slow, not as capital', (() => {
+    const f = flagsFor({ capitalOnHand: 1000, daysRemaining: SLOW_DAYS + 1, returnRate: 0 });
+    return f.some((x) => x.key === 'slow') && !f.some((x) => x.key.startsWith('capital'));
+  })());
+  check('capital and slow are never both claimed for one brand',
+    rep.brands.every((b) => {
+      const k = b.flags.map((f) => f.key);
+      return !(k.includes('slow') && k.some((x) => x.startsWith('capital')));
+    }));
+  check('a high return rate is flagged',
+    flagsFor({ capitalOnHand: 0, daysRemaining: 0, returnRate: HIGH_RETURN_RATE })
+      .some((f) => f.key === 'returns'));
+  check('selling out fast is flagged too',
+    flagsFor({ capitalOnHand: 0, daysRemaining: 20, returnRate: 0, lifetimeRate: 0.9 })
+      .some((f) => f.key === 'priced-under'));
+  check('a brand with nothing notable carries no flags',
+    flagsFor({ capitalOnHand: 1000, daysRemaining: 40, returnRate: 0.01, lifetimeRate: 0.7 })
+      .length === 0);
+  check('every flag explains itself',
+    rep.brands.every((b) => b.flags.every((f) => f.label && f.detail)));
+
+  /* Chrome Hearts is the case that motivated the panel: a respectable lifetime
+   * rate, a bad return rate, and $1.69M sitting still. The percentage alone
+   * would have said it was fine. */
+  check('the healthy-looking brand with stranded capital is caught',
+    ch.band === 'healthy'
+      && ch.flags.some((f) => f.key === 'capital-stranded')
+      && ch.flags.some((f) => f.key === 'returns'),
+    ch.flags.map((f) => f.label).join(', '));
+
+  // --- robustness ----------------------------------------------------------
+  check('a blank vendor is named rather than dropped',
+    rep.brands.some((b) => b.brand === 'No brand set'));
+  check('shaping survives a completely empty report', (() => {
+    const empty = shapeBrands({ lifetimeRows: [], windows: {}, salesRows: [], end: '2026-09-22' });
+    return empty.brands.length === 0 && empty.totals.lifetimeRate === null;
+  })());
+  check('shaping survives missing window and sales data', (() => {
+    const partial = shapeBrands({
+      lifetimeRows: [{ product_vendor: 'X', ending_inventory_units: 10,
+        inventory_units_sold: 30, sell_through_rate: 0.75,
+        days_of_inventory_remaining: 12, ending_inventory_value: 500 }],
+      end: '2026-09-22',
+    });
+    const b = partial.brands[0];
+    return b.band === 'healthy' && b.returnRate === null && Object.keys(b.windows).length === 0;
+  })());
+}
+
 /* ---- classification -------------------------------------------------------
  * An independent restatement of the whole rule, written out longhand so it can
  * disagree with bucketOf() if either drifts. Order matters and mirrors
