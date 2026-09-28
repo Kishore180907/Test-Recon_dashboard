@@ -21,7 +21,7 @@ const {
   setWatermark, getWatermark, acquireLock, releaseLock,
 } = await import('../lib/repo.js');
 const { buildPayload } = await import('../lib/payload.js');
-const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel, isEbayOrder, isMobileAppChannel } = await import('../lib/classify.js');
+const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel, isEbayOrder, isMobileAppChannel, hasOnlineTouchpoint, isDraftInvoiceLink } = await import('../lib/classify.js');
 const { localDateOf } = await import('../lib/timezone.js');
 const auth = await import('../lib/auth.js');
 
@@ -167,18 +167,25 @@ check('the non-POS total is unchanged by reclassification',
   check('order counts move too',
     withMap.buckets.draft.orderCount < ex.buckets.draft.orderCount);
 
-  // An uncredited mobile-app order must reach Ecommerce, not Assisted — the
-  // fixture is all credited, so this is checked directly.
-  check('an uncredited mobile-app draft reaches Ecommerce',
+  // An uncredited mobile-app order with a real browse behind it must reach
+  // Ecommerce, not Assisted — the fixture is all credited, so this is direct.
+  check('an uncredited mobile-app draft with a browse reaches Ecommerce',
     bucketOf({ sourceName: 'shopify_draft_order', appName: 'Draft Orders', note: '',
       salesChannel: 'Shopify Mobile for iPhone',
-      firstClickSource: 'Direct', lastClickSource: 'Direct' }) === 'online');
+      firstClickSource: 'Direct', lastClickSource: 'Direct',
+      firstVisit: { landingPage: 'https://www.clb23.com/products/some-jacket' },
+      lastVisit: { landingPage: 'https://www.clb23.com/cart' } }) === 'online');
 
   const all = ['online', 'assisted', 'draft'].flatMap((k) => withMap.buckets[k].orders);
   const phones = all.filter((o) => o.device === 'Shopify iPhone');
   check('mobile-app rows carry the device label', phones.length > 0, `${phones.length} rows`);
-  check('every mobile-app row is out of the Draft bucket',
-    withMap.buckets.draft.orders.every((o) => o.device !== 'Shopify iPhone'));
+
+  /* A phone-written row MAY now sit in Draft — that is the point of the
+   * online-touchpoint rule — but only when its journey shows no browse. */
+  check('phone-written rows in Draft are the ones with no online touchpoint',
+    withMap.buckets.draft.orders
+      .filter((o) => o.device === 'Shopify iPhone')
+      .every((o) => o.onlineTouchpoint === false));
   check('rows carry Shopify’s channel name',
     phones.every((o) => /^shopify mobile/i.test(o.salesChannel || '')));
 
@@ -691,7 +698,14 @@ check('the sync lock keeps two runs from overlapping', first && !second && third
  * -------------------------------------------------------------------------- */
 const wantBucket = (o) => {
   if (isEbayOrder(o)) return 'online';
-  if (isMobileAppChannel(o)) return isAssisted(o) ? 'assisted' : 'online';
+  /* The mobile-app override now needs evidence the customer actually came
+   * through the site — restated longhand rather than by calling
+   * hasOnlineTouchpoint, so this can disagree with it if either drifts. */
+  const invoiceLink = (u) => /\/do\/[0-9a-z]{16,}/i.test(String(u ?? ''));
+  const landings = [o?.firstVisit?.landingPage, o?.lastVisit?.landingPage].filter(Boolean);
+  const online = isMarketingTouched(o)
+    || (landings.length > 0 && landings.some((p) => !invoiceLink(p)));
+  if (isMobileAppChannel(o) && online) return isAssisted(o) ? 'assisted' : 'online';
   if (isDraft(o)) return isMarketingTouched(o) ? 'assisted' : 'draft';
   return isAssisted(o) ? 'assisted' : 'online';
 };
@@ -740,10 +754,15 @@ check('a draft order with a retail location is not treated as POS',
  * move them out of Draft and into Ecommerce.
  * -------------------------------------------------------------------------- */
 {
+  const browsed = {
+    firstVisit: { landingPage: 'https://www.clb23.com/products/chrome-hearts-tee' },
+    lastVisit: { landingPage: 'https://shop.app/checkout/56857362521/do/a664ef0d044a24c146dbd3266dc2b429/en-us/shoppay' },
+  };
   const mobileDraft = {
     sourceName: 'shopify_draft_order', appName: 'Draft Orders', note: '',
     salesChannel: 'Shopify Mobile for iPhone',
     firstClickSource: 'Direct', lastClickSource: 'Direct',
+    ...browsed,
   };
   const deskDraft = { ...mobileDraft, salesChannel: 'Draft Orders' };
   const unknownDraft = { ...mobileDraft, salesChannel: '' };
@@ -767,6 +786,84 @@ check('a draft order with a retail location is not treated as POS',
 
   check('a mobile-app order is never POS',
     bucketOf({ ...mobileDraft, salesChannel: 'Shopify Mobile for Android' }) === 'online');
+}
+
+/* ---- the invoice-link-only rule -------------------------------------------
+ * Store rule, 2026-09-28. Writing the invoice on a phone does not make the sale
+ * ecommerce; the customer arriving through the site does. Anchored on the live
+ * shape of order #28082 — one touchpoint, Direct, landing straight on the
+ * invoice link — which sat in Ecommerce purely because of the staff device.
+ * -------------------------------------------------------------------------- */
+{
+  const INVOICE = 'https://www.clb23.com/checkouts/do/cbc4d18e25de4dbb1231f6f087a9eb16/en-us';
+  const SHOP_PAY = 'https://shop.app/checkout/56857362521/do/a664ef0d044a24c146dbd3266dc2b429/en-us/shoppay';
+
+  const phone = (over = {}) => ({
+    sourceName: 'shopify_draft_order', appName: 'Draft Orders', note: '',
+    salesChannel: 'Shopify Mobile for iPhone',
+    firstClickSource: 'Direct', lastClickSource: 'Direct',
+    ...over,
+  });
+  const visits = (a, b = a) => ({ firstVisit: { landingPage: a }, lastVisit: { landingPage: b } });
+
+  // --- what counts as an invoice link --------------------------------------
+  check('the storefront invoice link is recognised', isDraftInvoiceLink(INVOICE));
+  check('the Shop Pay invoice link is recognised', isDraftInvoiceLink(SHOP_PAY));
+  check('a product page is not an invoice link',
+    !isDraftInvoiceLink('https://www.clb23.com/products/chrome-hearts-1-roller-belt'));
+  /* A collection could be named "do" and a product handle could contain it.
+   * The token length is what keeps those out. */
+  check('a path segment merely called "do" is not an invoice link',
+    !isDraftInvoiceLink('https://www.clb23.com/collections/do'));
+  check('a missing url is not an invoice link',
+    !isDraftInvoiceLink(null) && !isDraftInvoiceLink(undefined) && !isDraftInvoiceLink(''));
+
+  // --- the touchpoint test --------------------------------------------------
+  check('the invoice link alone is not an online touchpoint',
+    hasOnlineTouchpoint(phone(visits(INVOICE))) === false);
+  check('no journey at all is not an online touchpoint',
+    hasOnlineTouchpoint(phone({ firstClickSource: 'No journey data',
+      lastClickSource: 'No journey data' })) === false);
+  check('a storefront landing page is an online touchpoint',
+    hasOnlineTouchpoint(phone(visits('https://www.clb23.com/collections/amiri'))) === true);
+  check('browsing first and paying by invoice is still an online touchpoint',
+    hasOnlineTouchpoint(phone(visits('https://www.clb23.com/', SHOP_PAY))) === true);
+  check('a named source is an online touchpoint even when it lands on the invoice',
+    hasOnlineTouchpoint(phone({ ...visits(INVOICE), firstClickSource: 'Instagram',
+      lastClickSource: 'Instagram' })) === true);
+
+  // --- what that does to the bucket ----------------------------------------
+  check('#28082 — one direct touchpoint on the invoice link — is Draft',
+    bucketOf(phone(visits(INVOICE))) === 'draft');
+  check('the same order written at a desk is Draft too, as it always was',
+    bucketOf(phone({ ...visits(INVOICE), salesChannel: 'Draft Orders' })) === 'draft');
+  check('a phone-written draft with no journey at all is Draft',
+    bucketOf(phone()) === 'draft');
+  check('repeat opens of the same invoice are still Draft',
+    bucketOf(phone({ ...visits(INVOICE), touchpoints: 4 })) === 'draft');
+
+  /* The credit note does NOT rescue it into Assisted. That is not a new
+   * behaviour: draft attribution has always decided before the credit note is
+   * consulted, which is why a desk-written credited draft reads Draft. The
+   * change makes phone-written ones behave the same way. */
+  check('a credit note does not pull an invoice-only draft into Assisted',
+    bucketOf(phone({ ...visits(INVOICE), note: 'Credit: JR' })) === 'draft');
+
+  check('an invoice-only draft that Instagram drove stays in Ecommerce',
+    bucketOf(phone({ ...visits(INVOICE), firstClickSource: 'Instagram',
+      lastClickSource: 'Instagram' })) === 'online');
+
+  /* eBay still outranks all of this — it is unconditional by store rule, and
+   * eBay orders are exactly the shape this rule would otherwise catch: a
+   * hand-written draft with no journey whatsoever. */
+  check('eBay still beats the online-touchpoint rule',
+    bucketOf(phone({ customerName: 'Ebay' })) === 'online');
+
+  // A storefront sale is untouched: it was never a draft to begin with.
+  check('a plain storefront order is unaffected',
+    bucketOf({ sourceName: 'web', appName: 'Online Store', note: '',
+      salesChannel: 'Online Store', firstClickSource: 'Direct',
+      lastClickSource: 'Direct' }) === 'online');
 }
 
 /* ---- eBay is Ecommerce unconditionally ------------------------------------
