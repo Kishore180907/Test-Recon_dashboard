@@ -49,6 +49,29 @@ The map is cached rather than fetched on demand because `/api/data` never calls 
 
 `/api/channels` remains as a diagnostic endpoint for reconciling against Shopify Analytics directly; the dashboard UI does not call it.
 
+#### The mobile rule needs a real online touchpoint
+
+Store rule, set 2026-09-28, prompted by order **#28082**: one touchpoint, source Direct, landing straight on `/checkouts/do/…`, converted through the invoice link. Nothing about it is ecommerce — the customer was sent a link and paid it. It sat in the Ecommerce tile purely because the staff member wrote the draft on a phone.
+
+Shopify records the customer opening a staff-sent invoice as a **visit**, so "has a touchpoint" is not evidence of a journey. `hasOnlineTouchpoint()` asks for something better:
+
+| Journey | Online? |
+|---|---|
+| A named source — Instagram, Google, a Klaviyo email, a referring site | **Yes** |
+| A landing page that is not the invoice link — product, collection, home, search | **Yes** |
+| Nothing but `/checkouts/do/…` or `shop.app/checkout/…/do/…` | No |
+| No journey at all (`momentsCount` 0) | No |
+
+`isMobileAppChannel()` is now gated on it. Fail the test and the order falls through to the ordinary draft rules — which means **Draft**, because a credit note never rescues a draft (draft attribution decides before the assisted test, the same reason a desk-written credited draft reads Draft). Phone-written drafts now behave exactly like desk-written ones unless the customer really did come through the site.
+
+**Inference worth knowing.** Shopify exposes only the first and last visit, so a four-touchpoint journey with the invoice link at both ends could hide a browse in the middle. Store decision: treat it as Draft anyway — repeat opens of one invoice are not an online touchpoint. Two orders in the 90 days to 2026-09-28 turned on that ($3,205 of $150k). To require a fully visible journey instead, add a touchpoint-count test in `hasOnlineTouchpoint()`.
+
+**Measured impact**, 50 Shopify Mobile orders in the 90 days to 2026-09-28, $149,949 net: **22 orders / $58,094 move to Draft** — $37,554 out of Ecommerce and $20,540 out of Assisted.
+
+**This is a deliberate divergence from Shopify's own numbers.** Shopify's E-Commerce line still counts every Shopify Mobile order, so the Ecommerce tile now reads lower than `/api/channels` reports. That gap is the rule working, not a sync fault.
+
+The link test is `/\/do\/[0-9a-z]{16,}/i`, which matches both the storefront invoice (`/checkouts/do/<token>/en-us`) and Shop Pay's (`shop.app/checkout/<shop id>/do/<token>/en-us/shoppay`). The token-length floor is what stops a collection or product handle containing "do" from matching.
+
 ### eBay is Ecommerce unconditionally
 
 Store rule, set 2026-09-11: an eBay sale is an ecommerce sale, full stop. `isEbayChannel()` is tested in `bucketOf()` **above both the draft test and the assisted test**, so neither a staff credit note nor draft origin can move an eBay order out of Ecommerce. Only POS outranks it, and a POS sale cannot be an eBay sale.
