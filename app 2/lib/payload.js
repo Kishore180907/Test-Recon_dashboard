@@ -277,6 +277,12 @@ function slim(o, adSpendByKey = new Map()) {
     device: deviceLabel(o),
     isAssisted: o.isAssisted,
     isDraft: o.isDraft,
+    /* Whether the journey shows the customer arriving through the site at all,
+     * as opposed to only opening the invoice link. This is what decides
+     * whether a phone-written draft counts as an ecommerce sale, so the row
+     * carries it: without it nobody reading the drill-down can tell why two
+     * orders written on the same phone landed in different buckets. */
+    onlineTouchpoint: Boolean(o.onlineTouchpoint),
     creditedTo: o.creditedTo,
     touchpoints: o.touchpoints,
     daysToConversion: o.daysToConversion,

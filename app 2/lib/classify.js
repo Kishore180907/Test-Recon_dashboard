@@ -276,6 +276,57 @@ export function isMarketingTouched(o) {
   });
 }
 
+/* -----------------------------------------------------------------------------
+ * 4b. Was there ever an ONLINE touchpoint?  <<< EDIT THIS SECTION >>>
+ * -----------------------------------------------------------------------------
+ * Store rule, set 2026-09-28. A draft order is a draft order even when it was
+ * written up on a phone — unless the customer actually came through the site.
+ *
+ * The problem this fixes: Shopify records the customer opening a staff-sent
+ * invoice link as a "visit", so an order with no marketing behind it at all
+ * still shows a touchpoint, sourced Direct. Order #28082 is the example — one
+ * touchpoint, Direct, landing on /checkouts/do/…, converted through the invoice
+ * link. Nothing about that is ecommerce; the only reason it sat in the
+ * Ecommerce tile is that the draft was written in the Shopify mobile app.
+ *
+ * So the mobile-app override now asks for evidence of a real journey:
+ *
+ *   a marketing or referral source           -> online. Instagram, Google, a
+ *                                               Klaviyo email, a referring site.
+ *   a landing page that is NOT the invoice   -> online. They browsed: a product
+ *                                               page, a collection, the home
+ *                                               page, search.
+ *   nothing but the invoice link, or no      -> NOT online. Falls through to the
+ *   journey at all                              draft rules below.
+ *
+ * INFERENCE WORTH KNOWING. Shopify exposes only the first and last visit, so a
+ * journey of four touchpoints with the invoice link at both ends could in
+ * principle hide a real browse in the middle. Store decision: treat it as
+ * Draft anyway — repeat opens of the same invoice are still not an online
+ * touchpoint. Two orders in the 90 days to 2026-09-28 turned on this
+ * ($3,205 of $150k). To require a fully visible journey instead, add a
+ * touchpoint-count test here.
+ * ---------------------------------------------------------------------------*/
+
+/* Both flavours of invoice checkout carry /do/<token>: the storefront's
+ * /checkouts/do/<token>/en-us and Shop Pay's
+ * shop.app/checkout/<shop id>/do/<token>/en-us/shoppay. A storefront path like
+ * /collections/amiri or /products/… cannot match — no /do/ segment followed by
+ * a long token. */
+const DRAFT_INVOICE_LINK = /\/do\/[0-9a-z]{16,}/i;
+
+export const isDraftInvoiceLink = (url) => DRAFT_INVOICE_LINK.test(String(url ?? ''));
+
+export function hasOnlineTouchpoint(o) {
+  // A named source is an online touchpoint by definition — somebody's channel
+  // put the customer here, even if they landed straight on the invoice.
+  if (isMarketingTouched(o)) return true;
+
+  const pages = [o?.firstVisit?.landingPage, o?.lastVisit?.landingPage].filter(Boolean);
+  if (!pages.length) return false;   // Shopify resolved no journey at all.
+  return pages.some((p) => !isDraftInvoiceLink(p));
+}
+
 /* =============================================================================
  * 5. Bucketing
  * -----------------------------------------------------------------------------
@@ -299,8 +350,17 @@ export function bucketOf(o, { exclusive = true } = {}) {
    *
    * This runs BEFORE the draft test on purpose: without it these orders fall
    * into Draft and the Ecommerce tile understates by the size of that channel
-   * ($56,636 across 17 orders in August 2026). */
-  if (isMobileAppChannel(o)) return isAssisted(o) ? 'assisted' : 'online';
+   * ($56,636 across 17 orders in August 2026).
+   *
+   * It is CONDITIONAL on there having been a real online touchpoint. Writing
+   * the invoice on a phone does not make the sale ecommerce; the customer
+   * arriving through the site does. Without this guard an invoice the customer
+   * opened once, straight from a text message, counted as an ecommerce sale
+   * purely because of the device the staff member happened to hold. See
+   * hasOnlineTouchpoint. */
+  if (isMobileAppChannel(o) && hasOnlineTouchpoint(o)) {
+    return isAssisted(o) ? 'assisted' : 'online';
+  }
 
   const draft = isDraft(o);
 
@@ -326,6 +386,7 @@ export function annotate(o, { exclusive = true } = {}) {
     fromMobileApp: isMobileAppChannel(o),
     fromEbay: isEbayOrder(o),
     marketingTouched: isMarketingTouched(o),
+    onlineTouchpoint: hasOnlineTouchpoint(o),
     creditedTo: creditedTo(o),
     bucket: bucketOf(o, { exclusive }),
   };
