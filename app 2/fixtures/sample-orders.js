@@ -138,6 +138,21 @@ const rows = [
   ['#27416','2026-08-17T22:53:49Z','pos','Point of Sale','PAID','Walk-in',53.91,53.91,50,0,0,null,0,null,null,null,null],
   ['#27300','2026-08-16T18:10:00Z','pos','Point of Sale','PAID','Walk-in',412.5,412.5,375,0,0,null,0,null,null,null,null],
   ['#27250','2026-08-15T19:02:00Z','pos','Point of Sale','PAID','Walk-in',188.1,188.1,171,0,0,null,0,null,null,null,null],
+
+  /* ONLINE -> STORE. Modelled on the live order #28512: the customer gave their
+   * email to the site's popup the evening before, then walked in the next day
+   * and made their first ever purchase at the till. Marketing found them, a
+   * staff member closed them, so this POS order belongs in ASSISTED — the one
+   * and only way a POS sale reaches a panel. The last column is the signup, and
+   * it is a DIFFERENT calendar day in store time, which is the whole test.
+   *
+   * Its neighbour below is the trap: same shape, same first-ever purchase, but
+   * the email was keyed in at the register forty seconds before paying. That is
+   * a walk-in and must stay in POS. */
+  ['#27418','2026-08-17T21:40:00Z','pos','Point of Sale','PAID','Dale Renner',3700,3700,3400,0,0,null,0,null,null,null,null,
+    '2026-08-17T00:49:00Z'],
+  ['#27419','2026-08-17T21:55:00Z','pos','Point of Sale','PAID','Nina Alcott',612,612,560,0,0,null,0,null,null,null,null,
+    '2026-08-17T21:54:20Z'],
 ];
 
 const CHANNELS = {
@@ -148,7 +163,15 @@ const CHANNELS = {
 
 export const SAMPLE_ORDERS = rows.map((r, i) => {
   const [name, createdAt, src, app, status, customer, net, total, sub, ref, disc,
-    note, moments, days, first, last, cancelled] = r;
+    note, moments, days, first, last, cancelled, signedUpAt] = r;
+
+  /* When a row names a signup moment it is a first-time buyer, stated outright
+   * rather than left to the name hash — a fixture that only satisfies the rule
+   * by luck stops testing it the day someone renames a customer. Every other
+   * row gets its record created at the moment of sale, which is what the till
+   * actually does. */
+  const orders = signedUpAt ? 1 : CUSTOMER_ORDERS(customer);
+  const customerSince = signedUpAt || createdAt;
   return {
     id: `gid://shopify/Order/900000000${String(i).padStart(3, '0')}`,
     name,
@@ -169,8 +192,9 @@ export const SAMPLE_ORDERS = rows.map((r, i) => {
      * name so a given customer keeps the same history across runs. */
     customer: {
       displayName: customer,
-      numberOfOrders: String(CUSTOMER_ORDERS(customer)),
-      amountSpent: { amount: String(CUSTOMER_ORDERS(customer) * 480), currencyCode: 'USD' },
+      numberOfOrders: String(orders),
+      amountSpent: { amount: String(orders * 480), currencyCode: 'USD' },
+      createdAt: customerSince,
     },
     netPaymentSet: { shopMoney: { amount: String(net), currencyCode: 'USD' } },
     totalPriceSet: { shopMoney: { amount: String(total) } },
@@ -180,7 +204,7 @@ export const SAMPLE_ORDERS = rows.map((r, i) => {
     customerJourneySummary: {
       ready: true,
       momentsCount: { count: moments, precision: 'EXACT' },
-      customerOrderIndex: CUSTOMER_ORDERS(customer),
+      customerOrderIndex: orders,
       daysToConversion: days,
       firstVisit: V(first),
       lastVisit: V(last),
