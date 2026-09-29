@@ -524,6 +524,10 @@
   .chip.credit { border-color: var(--series-assisted); color: var(--series-assisted); }
   .chip.cancelled { border-color: var(--critical); color: var(--critical); }
   .chip.ad { border-color: var(--meta); color: var(--meta); }
+  /* Marketing acquired them online, a staff member closed them in store. Takes
+     the Ecommerce hue rather than the Assisted one, because the half of the
+     story this chip is there to tell is the online half. */
+  .chip.acquired { border-color: var(--series-online); color: var(--series-online); }
   .empty { padding: 34px; text-align: center; color: var(--text-muted); font-size: 13px; }
   .skeleton { color: var(--text-muted); font-size: 13px; padding: 30px; text-align: center; }
 
@@ -793,7 +797,7 @@
   <div class="strip">
     <span>Non-POS revenue <b id="t-nonpos">—</b></span>
     <span>Non-POS orders <b id="t-nonposn">—</b></span>
-    <span>POS revenue (excluded) <b id="t-pos">—</b></span>
+    <span title="In-store sales, kept out of the three tiles — except a first-ever purchase by a customer who signed up online before the day, which is credited to Assisted instead and is not counted here.">POS revenue (excluded) <b id="t-pos">—</b></span>
     <span>All channels <b id="t-all">—</b></span>
     <span>Orders in view <b id="t-cached">—</b></span>
   </div>
@@ -1006,13 +1010,22 @@
               them in. If the only thing in their history is opening the invoice link you sent,
               it is a Draft, whatever device it was written on.</li>
           <li><b>Assisted</b> Someone helped. Either a staff member is credited on the order note,
-              or the customer came in through an ad or a marketing email before buying.</li>
+              or the customer came in through an ad or a marketing email before buying.
+              It also holds the <b>online → store</b> sales: a customer who signed up on the
+              site on an earlier day and then made their <em>first ever</em> purchase at the
+              till. Marketing found them, one of your team closed them, and the row says
+              <span class="keyline">POS</span> under Converted via so you can see where the
+              money actually changed hands.</li>
           <li><b>Draft</b> Written up by hand in Shopify and sent to the customer as an invoice —
               and the customer arrived on their own, with no ad or campaign in their history.</li>
         </ul>
         <div class="callout">
-          <b>In-store sales are not in here.</b> Anything rung up on the POS is counted
-          separately in the strip under the tiles, so it never inflates these three numbers.
+          <b>In-store sales are not in here</b> — with one exception. Anything rung up on the
+          POS is counted separately in the strip under the tiles, so it never inflates these
+          three numbers. The exception is a customer who signed up online before the day and
+          then bought in store for the first time: that one lands in Assisted, because
+          crediting it to nobody would hide the work that produced it. It leaves the POS
+          figure when it does, so nothing is counted twice.
         </div>
       </section>
 
@@ -2162,6 +2175,9 @@ function renderTable() {
       <td class="ord">
         <a href="${o.adminUrl}" target="_blank" rel="noopener">${esc(o.orderNumber)}</a>
         ${o.creditedTo ? `<span class="sub"><span class="chip credit">credit: ${esc(o.creditedTo)}</span></span>` : ''}
+        ${o.onlineAcquiredPOS ? `<span class="sub"><span class="chip acquired" title="First ever order. This customer signed up online${
+          o.customerSince ? ` on ${esc(fmtDay(o.customerSince.slice(0, 10)))}` : ''
+        }, then bought in store — so marketing found them and a staff member closed them.">online → store</span></span>` : ''}
         ${o.cancelled ? `<span class="sub"><span class="chip cancelled">cancelled</span></span>` : ''}
       </td>
       <td>${fmtDT(o.createdAt)}</td>
