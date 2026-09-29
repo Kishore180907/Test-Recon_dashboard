@@ -18,10 +18,12 @@ const { fetchCampaignInsights, campaignKey } = await import('../lib/meta.js');
 const {
   upsertOrders, readOrders, readPosTotals, monthsBetween,
   upsertMetaInsights, readMetaInsights,
-  setWatermark, getWatermark, acquireLock, releaseLock,
+  setWatermark, getWatermark, acquireLock, releaseLock, ORDERS,
 } = await import('../lib/repo.js');
+const { getJSON, setJSON } = await import('../lib/blobs.js');
 const { buildPayload } = await import('../lib/payload.js');
-const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel, isEbayOrder, isMobileAppChannel, hasOnlineTouchpoint, isDraftInvoiceLink } = await import('../lib/classify.js');
+const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel, isEbayOrder, isMobileAppChannel, hasOnlineTouchpoint, isDraftInvoiceLink,
+  isOnlineAcquiredPOS } = await import('../lib/classify.js');
 const { localDateOf } = await import('../lib/timezone.js');
 const auth = await import('../lib/auth.js');
 
@@ -64,15 +66,51 @@ check('re-syncing the same orders does not duplicate non-POS orders',
     await upsertOrders(all.slice(i, i + size));
   }
   const stored = await readOrders('2026-01-01', '2026-12-31');
-  const expected = all.filter((o) => !o.test && !isPOS(o)).length;
+  /* Stored whole: everything non-POS, PLUS the online-acquired POS sales, which
+   * are kept as rows because they have to appear in the Assisted panel. */
+  const kept = all.filter((o) => !o.test && (!isPOS(o) || isOnlineAcquiredPOS(o)));
   check('every order survives a page-by-page backfill',
-    stored.length === expected, `${stored.length} stored vs ${expected} expected`);
+    stored.length === kept.length, `${stored.length} stored vs ${kept.length} expected`);
 
   const posAfter = await readPosTotals('2026-01-01', '2026-12-31');
-  const posExpected = all.filter((o) => !o.test && isPOS(o))
+  // ...and those same orders must have LEFT the day totals, or they are counted
+  // once in Assisted and again in the POS reference figure.
+  const posExpected = all.filter((o) => !o.test && isPOS(o) && !isOnlineAcquiredPOS(o))
     .reduce((sum, o) => sum + o.netPayment, 0);
   check('POS day-totals survive a page-by-page backfill',
     near(posAfter.revenue, posExpected), `${posAfter.revenue.toFixed(2)} vs ${posExpected.toFixed(2)}`);
+
+  const promoted = all.filter((o) => !o.test && isPOS(o) && isOnlineAcquiredPOS(o));
+  check('the online-acquired POS sale is stored as a row, not a day total',
+    promoted.length > 0 && promoted.every((p) => stored.some((s) => s.id === p.id)),
+    `${promoted.length} promoted`);
+  check('and it is not also in the POS day totals',
+    !near(posAfter.revenue, posExpected + promoted.reduce((s, o) => s + o.netPayment, 0)));
+
+  /* Migration guard. Before this rule existed the sale WAS a POS day total, and
+   * nothing rebuilds history — so the sync has to evict it when it promotes it,
+   * or the same money is counted in Assisted and in the POS figure forever.
+   * Written here as the real sequence: store it the old way, then re-sync. */
+  {
+    const one = promoted[0];
+    const day = localDateOf(one.createdAt);
+    const month = day.slice(0, 7);
+    const shard = (await getJSON(ORDERS, `p/${month}`, { strong: true })) || {};
+    const entries = { ...(shard[day]?.entries || {}), [one.id]: one.netPayment };
+    const values = Object.values(entries);
+    shard[day] = { entries, orders: values.length, revenue: values.reduce((s, v) => s + v, 0) };
+    await setJSON(ORDERS, `p/${month}`, shard);
+
+    const stale = await readPosTotals('2026-01-01', '2026-12-31');
+    check('a pre-rule sync really did leave it in the POS totals',
+      near(stale.revenue, posExpected + one.netPayment),
+      `${stale.revenue.toFixed(2)}`);
+
+    await upsertOrders([one]);
+    const healed = await readPosTotals('2026-01-01', '2026-12-31');
+    check('re-syncing evicts it from the POS totals, with no rebuild',
+      near(healed.revenue, posExpected), `${healed.revenue.toFixed(2)} vs ${posExpected.toFixed(2)}`);
+  }
 }
 
 /* ---- Meta Ads insights ---------------------------------------------------- */
@@ -262,9 +300,22 @@ for (const k of ['online', 'assisted', 'draft']) {
 }
 check('no order appears in two buckets in exclusive mode', dupes === 0, `${dupes} duplicates`);
 
-check('no POS order reaches the three panels',
-  [...b.online.orders, ...b.draft.orders, ...b.assisted.orders]
-    .every((o) => !/point of sale/i.test(o.channelName || '')));
+/* The only POS order allowed into a panel is an online-acquired one, and only
+ * into Assisted. Ecommerce and Draft must still be free of in-store sales. */
+{
+  const posRows = (list) => list.filter((o) => /point of sale/i.test(o.channelName || ''));
+  check('no POS order reaches Ecommerce or Draft',
+    posRows([...b.online.orders, ...b.draft.orders]).length === 0);
+
+  const inAssisted = posRows(b.assisted.orders);
+  check('the POS orders in Assisted are the online-acquired ones',
+    inAssisted.length > 0 && inAssisted.every((o) => o.onlineAcquiredPOS === true),
+    `${inAssisted.length} rows`);
+  check('they say POS under Converted via',
+    inAssisted.every((o) => o.convertedVia === 'POS'));
+  check('they are all first-time buyers',
+    inAssisted.every((o) => o.orderIndex === 1));
+}
 
 check('overlay assisted is a superset of exclusive assisted',
   ov.buckets.assisted.orderCount >= b.assisted.orderCount);
@@ -697,6 +748,12 @@ check('the sync lock keeps two runs from overlapping', first && !second && third
  * note), then the draft attribution split, then assisted.
  * -------------------------------------------------------------------------- */
 const wantBucket = (o) => {
+  /* An in-store sale to a first-time buyer who signed up on an earlier day is
+   * credited to Assisted. Restated longhand, not by calling the library, so it
+   * can disagree if either drifts. Sits above the eBay test because a POS sale
+   * cannot be an eBay sale anyway and the order of the two never matters. */
+  if (isPOS(o) && Number(o.customerOrders) === 1 && o.customerSince && o.createdAt
+      && localDateOf(o.customerSince) < localDateOf(o.createdAt)) return 'assisted';
   if (isEbayOrder(o)) return 'online';
   /* The mobile-app override now needs evidence the customer actually came
    * through the site — restated longhand rather than by calling
@@ -786,6 +843,83 @@ check('a draft order with a retail location is not treated as POS',
 
   check('a mobile-app order is never POS',
     bucketOf({ ...mobileDraft, salesChannel: 'Shopify Mobile for Android' }) === 'online');
+}
+
+/* ---- online -> store -------------------------------------------------------
+ * Store rule, 2026-09-29, from order #28512: a customer who signed up online on
+ * an earlier day and then made their FIRST ever purchase at the till is credited
+ * to Assisted, not lost in the POS reference figure.
+ *
+ * Anchored on real shapes. The pass cases are #28512 (Klaviyo popup the evening
+ * before, $3,700 the next afternoon) and #28373 (signed up the 18th, bought the
+ * 22nd). The fail cases are the ones that make the rule worth having: #27890,
+ * whose customer record was created FOURTEEN SECONDS before the sale, and
+ * #27899, a regular with seventeen orders behind them.
+ * -------------------------------------------------------------------------- */
+{
+  const pos = (over = {}) => ({
+    sourceName: 'pos', appName: 'Point of Sale', channelHandle: 'pos', note: '', ...over,
+  });
+
+  // --- the two known live cases --------------------------------------------
+  check('#28512 — Klaviyo signup the evening before, first purchase in store',
+    isOnlineAcquiredPOS(pos({ createdAt: '2026-09-29T18:03:49Z',
+      customerSince: '2026-09-29T00:49:32Z', customerOrders: 1 })) === true);
+  check('#28373 — signed up four days earlier, first purchase in store',
+    isOnlineAcquiredPOS(pos({ createdAt: '2026-09-22T15:53:21Z',
+      customerSince: '2026-09-18T18:14:09Z', customerOrders: 1 })) === true);
+
+  /* #28512 is the reason the comparison is in STORE time. The signup is
+   * 00:49 UTC — already the 29th in UTC, still the evening of the 28th in New
+   * York. Compared as raw timestamps it looks like a same-day till capture and
+   * the case the rule exists for would be thrown away. */
+  check('the day comparison is in store time, not UTC', (() => {
+    const o = pos({ createdAt: '2026-09-29T18:03:49Z',
+      customerSince: '2026-09-29T00:49:32Z', customerOrders: 1 });
+    const naiveSameDay = o.customerSince.slice(0, 10) === o.createdAt.slice(0, 10);
+    return naiveSameDay && isOnlineAcquiredPOS(o) === true;
+  })());
+
+  // --- the cases it must refuse --------------------------------------------
+  check('#27890 — email keyed in at the till seconds before paying is not acquired',
+    isOnlineAcquiredPOS(pos({ createdAt: '2026-09-01T17:00:45Z',
+      customerSince: '2026-09-01T17:00:31Z', customerOrders: 1 })) === false);
+  check('#27899 — a regular with seventeen orders is not acquired',
+    isOnlineAcquiredPOS(pos({ createdAt: '2026-09-01T22:21:40Z',
+      customerSince: '2024-11-22T20:10:50Z', customerOrders: 17 })) === false);
+  check('a POS sale with no customer at all is not acquired',
+    isOnlineAcquiredPOS(pos({ createdAt: '2026-09-23T15:57:51Z',
+      customerSince: null, customerOrders: null })) === false);
+  check('an online order is never online-acquired POS', (() => {
+    const web = { sourceName: 'web', appName: 'Online Store', note: '',
+      createdAt: '2026-09-29T18:03:49Z', customerSince: '2026-09-01T00:00:00Z',
+      customerOrders: 1 };
+    return isOnlineAcquiredPOS(web) === false && bucketOf(web) === 'online';
+  })());
+
+  // --- what it does to the bucket and the row -------------------------------
+  {
+    const o = pos({ createdAt: '2026-09-29T18:03:49Z',
+      customerSince: '2026-09-29T00:49:32Z', customerOrders: 1 });
+    check('it is credited to Assisted', bucketOf(o) === 'assisted');
+    check('the row says where it was rung up', deviceLabel(o) === 'In store');
+    check('a till-signup POS sale stays out of the panels',
+      bucketOf(pos({ createdAt: '2026-09-01T17:00:45Z',
+        customerSince: '2026-09-01T17:00:31Z', customerOrders: 1 })) === 'pos');
+    check('POS still outranks the draft and assisted tests', (() => {
+      // Same order with a staff credit note: already Assisted, still Assisted.
+      const credited = { ...o, note: 'Credit: JR' };
+      return bucketOf(credited) === 'assisted';
+    })());
+  }
+
+  // --- orderIndex agrees with customerOrders --------------------------------
+  check('Shopify’s own order index is accepted in place of the count',
+    isOnlineAcquiredPOS(pos({ createdAt: '2026-09-29T18:03:49Z',
+      customerSince: '2026-09-29T00:49:32Z', orderIndex: 1 })) === true);
+  check('a second order is refused even when the index is present',
+    isOnlineAcquiredPOS(pos({ createdAt: '2026-09-29T18:03:49Z',
+      customerSince: '2026-09-01T00:00:00Z', orderIndex: 2, customerOrders: 2 })) === false);
 }
 
 /* ---- the invoice-link-only rule -------------------------------------------
