@@ -72,6 +72,31 @@ Shopify records the customer opening a staff-sent invoice as a **visit**, so "ha
 
 The link test is `/\/do\/[0-9a-z]{16,}/i`, which matches both the storefront invoice (`/checkouts/do/<token>/en-us`) and Shop Pay's (`shop.app/checkout/<shop id>/do/<token>/en-us/shoppay`). The token-length floor is what stops a collection or product handle containing "do" from matching.
 
+### Online → store: the one POS sale that reaches a panel
+
+Store rule, set 2026-09-29, from order **#28512**.
+
+**The case.** A customer clicked a Google Shopping listing, landed on a Chrome Hearts bracelet page, gave their email to the Klaviyo popup at 8:48 PM, and the next afternoon walked into Fairfield Commons, where Jake rang up **$3,700** — their first ever order. Marketing found that customer and a staff member closed them, which is the definition of an **Assisted** sale here. It was landing in POS, where nothing is credited to anyone.
+
+**Why the test is what it is.** Most POS customers do not exist until the moment they pay: staff key an email into the terminal and Shopify creates the record seconds before the order. In a 50-order sample from 1–4 September, **26 of 50** customer records were created less than an hour before the sale — order #27890's customer was created **fourteen seconds** before it. Those are walk-ins, and email capture at the till is not marketing's work.
+
+So the signal is not "has a customer" or "is on the list". It is that the customer already existed, on an earlier day, before ever buying anything:
+
+1. this is their **first** order, **and**
+2. their customer record was created on an **earlier local day** than the sale
+
+Both are needed. Drop (1) and every regular who ever shopped in store counts, crediting marketing with loyalty it did not create. Drop (2) and the till signups flood in — **21 of the 21** first-time POS buyers in that sample were created the same day, at the register.
+
+**Store time, not UTC.** #28512's signup is 00:49 UTC — already the 29th in UTC, still the evening of the 28th in New York. Compared as raw timestamps it reads as a same-day till capture and the case the rule exists for is thrown away. `localDateOf()` on both sides; pinned by a test.
+
+**What it catches.** Very little, by design: zero of those 50, and one of 50 from 22–25 September (#28373 — signed up the 18th, bought $921 on the 22nd). But both known cases are several times the ~$230 POS average, because someone who researches online and then travels to the store is shopping, not grabbing.
+
+**Storage.** POS is collapsed to per-day totals and has no per-order rows, so a qualifying sale is stored **whole** in `m/<month>` like any other order and left out of `p/<month>`. `upsertOrders()` also **evicts** it from the day total if an earlier sync already put it there — nothing rebuilds history, so without that line the same money would sit in Assisted and in the POS figure forever. Pinned by a test that stores it the old way and re-syncs.
+
+**What it costs.** The POS reference figure no longer matches Shopify's POS channel total; it is short by exactly these orders. The three tiles still sum to `totals.nonPosRevenue`, and `allRevenue` is still the true all-channels figure — nothing is double counted, the boundary simply moved.
+
+In the drill-down these rows carry an **online → store** chip, read **POS** under Converted via, and show **In store** as the device.
+
 ### eBay is Ecommerce unconditionally
 
 Store rule, set 2026-09-11: an eBay sale is an ecommerce sale, full stop. `isEbayChannel()` is tested in `bucketOf()` **above both the draft test and the assisted test**, so neither a staff credit note nor draft origin can move an eBay order out of Ecommerce. Only POS outranks it, and a POS sale cannot be an eBay sale.
