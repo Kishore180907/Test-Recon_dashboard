@@ -224,6 +224,11 @@ function adTotals(adSpendByKey) {
  * from a self-serve checkout.
  */
 function convertedVia(o) {
+  /* An in-store sale says POS, whichever panel it ended up in. This is the
+   * whole point of the column for an online-acquired POS order sitting in
+   * Assisted: marketing found them, but the money changed hands at a till. */
+  if (o.isPOS) return 'POS';
+
   const landings = `${o.firstVisit?.landingPage || ''} ${o.lastVisit?.landingPage || ''}`;
   if (/\/checkouts\/do\//i.test(landings)) return 'Draft invoice link';
   if (o.isDraft) return 'Draft order';
@@ -283,6 +288,11 @@ function slim(o, adSpendByKey = new Map()) {
      * carries it: without it nobody reading the drill-down can tell why two
      * orders written on the same phone landed in different buckets. */
     onlineTouchpoint: Boolean(o.onlineTouchpoint),
+    /* An in-store sale to someone marketing acquired online. Carried so the
+     * row can say so — otherwise it reads as an ordinary assisted order and
+     * nobody can tell why a POS sale is in this panel. */
+    onlineAcquiredPOS: Boolean(o.onlineAcquiredPOS),
+    customerSince: o.customerSince || null,
     creditedTo: o.creditedTo,
     touchpoints: o.touchpoints,
     daysToConversion: o.daysToConversion,

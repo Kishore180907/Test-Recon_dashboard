@@ -16,11 +16,17 @@
  *  single reference figure, so they are collapsed to per-day totals instead of
  *  being stored whole. That keeps every month shard small enough to read and
  *  rewrite inside a function's time budget.
+ *
+ *  ONE EXCEPTION: a POS sale to a customer marketing acquired online is stored
+ *  whole in m/<month>, like any other order, and left out of p/<month>. It has
+ *  to be a row in the Assisted panel, and a day total has no rows. The bar is
+ *  high enough that this adds a handful of orders a month, not a flood — see
+ *  isOnlineAcquiredPOS in classify.js.
  * ========================================================================== */
 
 import { getJSON, setJSON, del, listKeys } from './blobs.js';
 import { localDateOf } from './timezone.js';
-import { isPOS } from './classify.js';
+import { isPOS, isOnlineAcquiredPOS } from './classify.js';
 
 export const ORDERS = 'orders';
 export const META = 'meta';
@@ -49,6 +55,7 @@ export function monthsBetween(startDate, endDate) {
 export async function upsertOrders(orders) {
   const byMonth = new Map();   // month -> { [id]: order }
   const posByMonth = new Map(); // month -> { [day]: {revenue, orders} }
+  const evictByMonth = new Map(); // month -> day -> Set(order id) to drop from p/
   let nonPos = 0;
   let pos = 0;
 
@@ -56,6 +63,26 @@ export async function upsertOrders(orders) {
     if (o.test) continue;
     const day = localDateOf(o.createdAt);
     const month = monthOf(day);
+
+    /* An online-acquired POS sale is kept WHOLE rather than collapsed into the
+     * day total, because it has to appear as a row in the Assisted panel and a
+     * day total has no rows. It is also deliberately left out of the POS
+     * shard below: it now lives in a tile, and counting it in both places
+     * would inflate the all-channels figure by its value. */
+    if (isPOS(o) && isOnlineAcquiredPOS(o)) {
+      nonPos += 1;
+      if (!byMonth.has(month)) byMonth.set(month, new Map());
+      byMonth.get(month).set(o.id, o);
+      /* It may ALREADY be in the day total from a sync that ran before this
+       * rule existed, or before customer.createdAt was being fetched. Queue it
+       * for eviction, or the same sale is counted once in Assisted and again in
+       * the POS figure — a silent double count that no rebuild is needed to
+       * avoid, only this line. */
+      if (!evictByMonth.has(month)) evictByMonth.set(month, new Map());
+      if (!evictByMonth.get(month).has(day)) evictByMonth.get(month).set(day, new Set());
+      evictByMonth.get(month).get(day).add(o.id);
+      continue;
+    }
 
     if (isPOS(o)) {
       pos += 1;
@@ -87,18 +114,34 @@ export async function upsertOrders(orders) {
 
   /* POS day-totals are keyed by order id and re-derived on write, so re-syncing
    * the same order updates its amount instead of double-counting it. */
-  for (const [month, days] of posByMonth) {
+  /* One pass over every month that either gained POS totals or has a sale to
+   * evict, so a month needing both is read and written once rather than twice.
+   * Both read the same shard, and two read-modify-writes on it would race. */
+  for (const month of new Set([...posByMonth.keys(), ...evictByMonth.keys()])) {
     const key = `p/${month}`;
     const existing = (await getJSON(ORDERS, key, { strong: true })) || {};
-    for (const [day, amounts] of days) {
-      const entries = { ...(existing[day]?.entries || {}), ...amounts };
+
+    const rewrite = (day, entries) => {
       const values = Object.values(entries);
+      if (!values.length) { delete existing[day]; return; }
       existing[day] = {
         entries,
         orders: values.length,
         revenue: values.reduce((s, v) => s + v, 0),
       };
+    };
+
+    for (const [day, amounts] of posByMonth.get(month) || []) {
+      rewrite(day, { ...(existing[day]?.entries || {}), ...amounts });
     }
+
+    for (const [day, ids] of evictByMonth.get(month) || []) {
+      const entries = { ...(existing[day]?.entries || {}) };
+      let dropped = false;
+      for (const id of ids) if (id in entries) { delete entries[id]; dropped = true; }
+      if (dropped) rewrite(day, entries);
+    }
+
     await setJSON(ORDERS, key, existing);
     touched.add(month);
   }

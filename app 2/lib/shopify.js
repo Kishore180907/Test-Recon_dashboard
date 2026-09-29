@@ -102,6 +102,10 @@ const ORDER_FIELDS = `
     displayName
     numberOfOrders
     amountSpent { amount currencyCode }
+    # When the customer record was created. This is what separates an email
+    # taken at the register from a signup that happened online days earlier —
+    # see isOnlineAcquiredPOS in classify.js.
+    createdAt
   }
   netPaymentSet { shopMoney { amount currencyCode } }
   totalPriceSet { shopMoney { amount } }
@@ -227,6 +231,7 @@ function normalize(n) {
      * on demand instead, in fetchOrderJourney. */
     customerOrders: Number(n.customer?.numberOfOrders) || null,
     customerSpend: num(n.customer?.amountSpent?.amount),
+    customerSince: n.customer?.createdAt || null,
     orderIndex: j.customerOrderIndex ?? null,
     currency: n.netPaymentSet?.shopMoney?.currencyCode || 'USD',
 

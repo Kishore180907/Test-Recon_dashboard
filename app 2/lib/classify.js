@@ -25,6 +25,66 @@ export function isPOS(o) {
 }
 
 /* -----------------------------------------------------------------------------
+ * 1a-ii. Online-acquired POS  <<< EDIT THIS SECTION >>>
+ * -----------------------------------------------------------------------------
+ * Store rule, set 2026-09-29, from order #28512.
+ *
+ * THE CASE. A customer clicked a Google Shopping listing, landed on a Chrome
+ * Hearts bracelet page, gave their email to the Klaviyo popup at 8:48pm, and
+ * the next afternoon walked into Fairfield Commons, where Jake rang up $3,700.
+ * Their first ever order. Marketing found that customer and a staff member
+ * closed them — which is the definition of an ASSISTED sale in this dashboard.
+ * It was landing in POS, where nothing is ever credited to anyone.
+ *
+ * WHY THE TEST IS WHAT IT IS. Most POS customers do not exist until the moment
+ * they pay: staff key an email into the terminal and Shopify creates the record
+ * seconds before the order. In a 50-order sample from 1-4 September, 26 of 50
+ * customer records were created less than an hour before the sale — order
+ * #27890's customer was created FOURTEEN SECONDS before it. Those are walk-ins,
+ * and no amount of email capture at the till makes them marketing's work.
+ *
+ * So the signal is not "has a customer" or "is on the email list" — it is that
+ * the customer already existed, on an earlier day, before ever buying anything:
+ *
+ *    1. this is their FIRST order, and
+ *    2. their customer record was created on an EARLIER LOCAL DAY than the sale
+ *
+ * Both are needed. Drop (1) and every regular who ever shopped in store counts,
+ * which credits marketing with loyalty it did not create. Drop (2) and the till
+ * signups flood in — 21 of the 21 first-time POS buyers in that sample were
+ * created the same day, at the register.
+ *
+ * The bar is deliberately high and catches little: zero of those 50, and one of
+ * 50 from 22-25 September (#28373, signed up on the 18th, bought $921 on the
+ * 22nd). But what it catches is worth seeing — both known cases are several
+ * times the ~$230 POS average, because someone who researches online and then
+ * travels to the store is shopping, not grabbing.
+ *
+ * THE COST, stated plainly: these orders leave the POS reference figure and
+ * enter Assisted, so the POS strip no longer matches Shopify's POS channel
+ * total, and the three tiles no longer sum to exactly non-POS revenue. That is
+ * the deliberate trade for making the sale visible to whoever closed it.
+ *
+ * Calendar days are compared in STORE time, not UTC. An 8:48pm signup in New
+ * York is already the next day in UTC; comparing the raw timestamps would call
+ * that a same-day till capture and throw the case away.
+ * ---------------------------------------------------------------------------*/
+
+import { localDateOf } from './timezone.js';
+
+export function isOnlineAcquiredPOS(o) {
+  if (!isPOS(o)) return false;
+
+  // Their first ever order. customerOrders counts this one, so 1 means no
+  // history; orderIndex is Shopify's own position and agrees when present.
+  const first = Number(o?.customerOrders) === 1 || Number(o?.orderIndex) === 1;
+  if (!first) return false;
+
+  if (!o?.customerSince || !o?.createdAt) return false;
+  return localDateOf(o.customerSince) < localDateOf(o.createdAt);
+}
+
+/* -----------------------------------------------------------------------------
  * 1b. Ecommerce channel membership  <<< EDIT THIS SECTION >>>
  * -----------------------------------------------------------------------------
  * The Ecommerce bucket is every digital selling channel, not just the web
@@ -121,6 +181,10 @@ export function isMobileAppChannel(o) {
 
 /** Human label for the drill-down's device column. Null when not applicable. */
 export function deviceLabel(o) {
+  /* A POS sale that reached Assisted is sitting among draft-written orders, so
+   * it says where it was actually rung up. Without this it would be the only
+   * row in the panel with no origin at all. */
+  if (isOnlineAcquiredPOS(o)) return 'In store';
   if (isPOS(o)) return null;
   // A marketplace sale has no staff device behind it, so it gets no device
   // label even in the unlikely case Shopify records it as a draft.
@@ -336,6 +400,12 @@ export function hasOnlineTouchpoint(o) {
  *                      that also appear in online or draft.
  * ========================================================================== */
 export function bucketOf(o, { exclusive = true } = {}) {
+  /* An in-store sale to someone marketing acquired online is credited to
+   * Assisted rather than disappearing into the POS reference figure. This is
+   * the one and only way a POS order reaches a panel — see isOnlineAcquiredPOS
+   * for the test and for what it costs. */
+  if (isOnlineAcquiredPOS(o)) return 'assisted';
+
   if (isPOS(o)) return 'pos'; // excluded from all three panels
 
   /* eBay is Ecommerce unconditionally — see isEbayOrder. This sits above both
@@ -387,6 +457,7 @@ export function annotate(o, { exclusive = true } = {}) {
     fromEbay: isEbayOrder(o),
     marketingTouched: isMarketingTouched(o),
     onlineTouchpoint: hasOnlineTouchpoint(o),
+    onlineAcquiredPOS: isOnlineAcquiredPOS(o),
     creditedTo: creditedTo(o),
     bucket: bucketOf(o, { exclusive }),
   };
