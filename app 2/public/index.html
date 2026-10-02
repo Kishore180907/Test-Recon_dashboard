@@ -238,6 +238,43 @@
   .btn:hover { background: var(--wash); color: var(--text-primary); }
   .spacer { flex: 1 1 auto; }
 
+  /* The two range selects. Styled to match .btn rather than left native, so
+     the control bar reads as one row; appearance:none would lose the caret on
+     some platforms, so the padding leaves room for the native one. */
+  .controls select {
+    background: transparent; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 8px;
+    font: inherit; font-size: 12.5px; padding: 5px 8px; cursor: pointer;
+    max-width: 190px;
+  }
+  /* A phone has no room for the long comparison labels; the select still holds
+     them, it just stops forcing the control bar wider than the screen. */
+  @media (max-width: 560px) {
+    .controls select { max-width: 150px; }
+    .controls input[type="date"] { max-width: 132px; }
+  }
+  .controls select:hover { color: var(--text-primary); }
+  .controls select option { background: var(--surface, #1b2430); color: var(--text-primary); }
+  /* An option the stored history cannot answer is disabled rather than hidden,
+     so the menu still shows what exists and why it is unavailable. */
+  .controls select option:disabled { color: var(--text-muted); }
+  /* Wraps rather than pushing the control bar past the screen edge: two date
+     inputs and a button are wider than a phone once the rest of the row has
+     had its share. */
+  .cmp-custom { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+  /* Change against the compared window. Carried by an arrow and the word
+     "vs <range>" in the title, never by colour alone. */
+  .delta {
+    margin-top: 5px; font-size: 12px; font-variant-numeric: tabular-nums;
+    display: flex; align-items: baseline; gap: 6px; color: var(--text-muted);
+  }
+  .delta b { font-weight: 640; }
+  .delta.up b { color: var(--good); }
+  .delta.down b { color: var(--critical); }
+  .delta .flat { color: var(--text-muted); }
+  .strip .delta { display: inline-flex; margin: 0 0 0 6px; font-size: 11.5px; }
+
   .banner {
     display: none; margin-bottom: 14px; padding: 9px 12px; border-radius: 10px;
     font-size: 12.5px; border: 1px solid var(--critical);
@@ -748,13 +785,31 @@
       <button data-preset="7" aria-pressed="true">7 days</button>
       <button data-preset="30">30 days</button>
       <button data-preset="90">90 days</button>
-      <button data-preset="mtd">MTD</button>
     </div>
+
+    <!-- Period to date. A select rather than four more buttons: the bar is
+         already wide, and this is the one control where the options are a set
+         you pick from rather than a row you scan. -->
+    <select id="period" aria-label="Period to date" title="Period to date">
+      <option value="">Period to date…</option>
+    </select>
+
     <span class="ctl-label">From</span>
     <input type="date" id="start" />
     <span class="ctl-label">to</span>
     <input type="date" id="end" />
     <button class="btn" id="apply">Apply</button>
+
+    <!-- Comparison. Changing it re-reads the compared window only; the range
+         on screen is already loaded and is not fetched again. -->
+    <select id="compare" aria-label="Compare to" title="Compare this range against another"></select>
+    <span class="cmp-custom" id="cmp-custom" hidden>
+      <span class="ctl-label">vs</span>
+      <input type="date" id="cmp-start" aria-label="Comparison start" />
+      <span class="ctl-label">to</span>
+      <input type="date" id="cmp-end" aria-label="Comparison end" />
+      <button class="btn" id="cmp-apply">Apply</button>
+    </span>
 
     <div class="spacer"></div>
 
@@ -770,6 +825,7 @@
       <div class="tile-head"><span class="swatch"></span><span class="tile-name">ECOMMERCE ORDERS</span>
         <span class="tile-rule">all digital channels · not draft · not POS</span></div>
       <div class="hero" data-hero>—</div>
+      <div class="delta" data-delta hidden></div>
       <div class="tile-sub"><span><b data-count>—</b> orders</span><span>AOV <b data-aov>—</b></span></div>
       <div class="sharebar"><i data-share style="width:0%"></i></div>
       <div class="sharepct" data-sharetext>—</div>
@@ -779,6 +835,7 @@
       <div class="tile-head"><span class="swatch"></span><span class="tile-name">ASSISTED ORDERS</span>
         <span class="tile-rule" id="assistedrule">rule</span></div>
       <div class="hero" data-hero>—</div>
+      <div class="delta" data-delta hidden></div>
       <div class="tile-sub"><span><b data-count>—</b> orders</span><span>AOV <b data-aov>—</b></span></div>
       <div class="sharebar"><i data-share style="width:0%"></i></div>
       <div class="sharepct" data-sharetext>—</div>
@@ -788,6 +845,7 @@
       <div class="tile-head"><span class="swatch"></span><span class="tile-name">DRAFT ORDERS</span>
         <span class="tile-rule">draft · not POS</span></div>
       <div class="hero" data-hero>—</div>
+      <div class="delta" data-delta hidden></div>
       <div class="tile-sub"><span><b data-count>—</b> orders</span><span>AOV <b data-aov>—</b></span></div>
       <div class="sharebar"><i data-share style="width:0%"></i></div>
       <div class="sharepct" data-sharetext>—</div>
@@ -795,8 +853,8 @@
   </div>
 
   <div class="strip">
-    <span>Non-POS revenue <b id="t-nonpos">—</b></span>
-    <span>Non-POS orders <b id="t-nonposn">—</b></span>
+    <span>Non-POS revenue <b id="t-nonpos">—</b><span class="delta" id="d-nonpos" hidden></span></span>
+    <span>Non-POS orders <b id="t-nonposn">—</b><span class="delta" id="d-nonposn" hidden></span></span>
     <span title="In-store sales, kept out of the three tiles — except a first-ever purchase by a customer who signed up online before the day, which is credited to Assisted instead and is not counted here.">POS revenue (excluded) <b id="t-pos">—</b></span>
     <span>All channels <b id="t-all">—</b></span>
     <span>Orders in view <b id="t-cached">—</b></span>
@@ -1164,6 +1222,10 @@
 
 <script type="module">
 import { channelSeries } from '/channels.js';
+import {
+  PERIODS, COMPARISONS, periodToDate, comparisonRange,
+  clampToCoverage, fullyCovered, pctChange, daysBetween,
+} from '/ranges.js';
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -1176,6 +1238,12 @@ const state = {
   sortKey: 'createdAt', sortDir: -1,
   paused: false, timer: null, tick: null, nextAt: 0, inflight: false,
   syncing: false, syncIntervalMin: 15, coverage: null,
+  /* The comparison window. `mode` is the menu choice, `custom` the two dates
+   * behind Custom, and `cmp` the loaded snapshot for that window — null
+   * whenever there is nothing to compare, which is also how every delta on the
+   * page knows to hide itself. */
+  cmpMode: 'none', cmpCustom: { start: null, end: null }, cmp: null, cmpRange: null,
+  cmpNote: null,
 };
 
 /* ---------------- formatting ---------------- */
@@ -1237,27 +1305,67 @@ function shiftDays(dateStr, n) {
 }
 
 /* ---------------- data ---------------- */
+/** One snapshot for one range. Throws so callers can decide what a failure
+ *  means — fatal for the range on screen, merely "no comparison" for the other. */
+async function fetchRange(start, end) {
+  const res = await fetch(`/api/data?${new URLSearchParams({ start, end })}`);
+  const body = await res.json();
+  if (res.status === 503 && body.needsBackfill) {
+    const e = new Error('needs backfill');
+    e.backfill = body.backfill;
+    throw e;
+  }
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+
+/**
+ * Work out the comparison window and load it.
+ *
+ * Deliberately never throws. A comparison is an extra; if it cannot be loaded
+ * the three tiles must still render the range the person actually asked for.
+ * A window that is only PARTLY stored is refused outright rather than compared
+ * — a half-covered baseline reads as a collapse in trade when it is really a
+ * gap in history, which is a worse lie than showing nothing.
+ */
+async function loadComparison() {
+  state.cmp = null; state.cmpRange = null; state.cmpNote = null;
+  if (state.cmpMode === 'none') return;
+
+  const range = comparisonRange(state.cmpMode, { start: state.start, end: state.end },
+    state.cmpCustom);
+  if (!range) {
+    if (state.cmpMode === 'custom') state.cmpNote = 'Pick the two dates to compare against.';
+    return;
+  }
+  if (!fullyCovered(range, state.coverage)) {
+    state.cmpNote = `No stored history for ${fmtDay(range.start)} – ${fmtDay(range.end)}. ` +
+      `The dashboard holds orders from ${fmtDay(state.coverage.start)}.`;
+    return;
+  }
+
+  try {
+    state.cmp = await fetchRange(range.start, range.end);
+    state.cmpRange = range;
+  } catch (err) {
+    state.cmpNote = `Could not load the comparison. ${err.message}`;
+  }
+}
+
 async function load() {
   if (state.inflight) return;
   state.inflight = true;
   try {
-    const q = new URLSearchParams({
-      start: state.start, end: state.end,
-    });
-    const res = await fetch(`/api/data?${q}`);
-    const body = await res.json();
-
-    if (res.status === 503 && body.needsBackfill) {
-      renderSetup(body.backfill);
-      return;
-    }
-    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    const body = await fetchRange(state.start, state.end);
 
     state.data = body;
+    await loadComparison();
     hideBanner();
     render();
     setLive();
   } catch (err) {
+    // The one-time seed hasn't run: show the setup screen, not an error.
+    if (err.backfill) { renderSetup(err.backfill); return; }
     setLive('err');
     showBanner(`Couldn't load the snapshot: ${err.message}. Showing the last good data; retrying automatically.`);
   } finally {
@@ -1373,6 +1481,7 @@ function render() {
     const pct = total > 0 ? (b.revenue / total) * 100 : 0;
     $('[data-share]', tile).style.width = `${pct.toFixed(1)}%`;
     $('[data-sharetext]', tile).textContent = `${pct.toFixed(1)}% of non-POS revenue`;
+    paintDelta($('[data-delta]', tile), b.revenue, state.cmp?.buckets?.[key]?.revenue, money0);
     tile.setAttribute('aria-selected', String(key === state.bucket));
   }
 
@@ -1381,14 +1490,54 @@ function render() {
   $('#t-pos').textContent     = `${money2(d.totals.posRevenue)} · ${int(d.totals.posOrders)} orders`;
   $('#t-all').textContent     = money2(d.totals.allRevenue);
   $('#t-cached').textContent  = int(d.ordersInStore ?? 0);
+  paintDelta($('#d-nonpos'), d.totals.nonPosRevenue, state.cmp?.totals?.nonPosRevenue, money0);
+  paintDelta($('#d-nonposn'), d.totals.nonPosOrders, state.cmp?.totals?.nonPosOrders, int);
 
   $('#sub').textContent =
-    `CLB XXIII · ${fmtDay(d.range.start)} – ${fmtDay(d.range.end)} · every order in exactly one bucket · syncs every ${state.syncIntervalMin} min`;
+    `CLB XXIII · ${fmtDay(d.range.start)} – ${fmtDay(d.range.end)}` +
+    (state.cmpRange ? ` · vs ${fmtDay(state.cmpRange.start)} – ${fmtDay(state.cmpRange.end)}` : '') +
+    ` · every order in exactly one bucket · syncs every ${state.syncIntervalMin} min`;
+
+  // A comparison that could not be made says why, once, rather than silently
+  // leaving every delta blank.
+  if (state.cmpNote) showBanner(state.cmpNote, true); else hideBanner();
 
   drawChart(d.daily);
   renderChannelCard();   // no-op while the panel is closed
   renderCampaigns();
   renderTable();
+}
+
+/**
+ * Write one change figure, or hide the element when there is nothing to show.
+ *
+ * Direction is carried by an arrow AND the sign, never by colour alone — the
+ * green and red are reinforcement for people who can use them, not the message.
+ * A baseline of zero prints the absolute change instead of a percentage,
+ * because "+∞%" is what dividing by it would otherwise produce the first time
+ * a bucket takes any money at all.
+ */
+function paintDelta(el, now, before, fmtNum = money0) {
+  if (!el) return;
+  if (before == null || !state.cmp) { el.hidden = true; return; }
+
+  const diff = (Number(now) || 0) - (Number(before) || 0);
+  const pct = pctChange(now, before);
+  el.hidden = false;
+  el.classList.toggle('up', diff > 0);
+  el.classList.toggle('down', diff < 0);
+
+  const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '■';
+  const shown = pct == null
+    ? `${diff >= 0 ? '+' : '−'}${fmtNum(Math.abs(diff))}`
+    : `${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%`;
+
+  el.innerHTML = diff === 0
+    ? `<span class="flat">■ no change</span>`
+    : `<b>${arrow} ${esc(shown)}</b><span>vs ${esc(fmtNum(before))}</span>`;
+  el.title = state.cmpRange
+    ? `${fmtNum(now)} this range vs ${fmtNum(before)} over ${fmtDay(state.cmpRange.start)} – ${fmtDay(state.cmpRange.end)}`
+    : '';
 }
 
 /* ---------------- campaigns: Shopify vs Meta ---------------- */
@@ -2264,24 +2413,121 @@ $$('#tiles .tile[data-bucket]').forEach((t) => t.addEventListener('click', () =>
   $('#tbl').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }));
 
+/**
+ * Put a range on screen.
+ *
+ * Everything that changes the dates funnels through here so the clamp against
+ * stored history happens in exactly one place. Year to date is the reason it
+ * exists: asked for on a January morning it reaches back further than the
+ * dashboard keeps, and /api/data would answer 400 rather than a dashboard.
+ * Clamping and saying so beats failing.
+ */
+/**
+ * Grey out the comparisons the stored history cannot answer FOR THIS RANGE.
+ *
+ * Re-run on every range change rather than decided once at startup, because
+ * availability genuinely depends on the range: with fourteen months stored,
+ * "previous year" works for a week in October and does not for a ninety-day
+ * window, since that one reaches back fifteen months. Judging it once by the
+ * longest preset would hide a comparison that works perfectly for the range
+ * actually on screen.
+ */
+function refreshComparisonOptions() {
+  const range = { start: state.start, end: state.end };
+  for (const opt of $$('#compare option')) {
+    const c = COMPARISONS.find((x) => x.key === opt.value);
+    if (!c || opt.value === 'none' || opt.value === 'custom') continue;
+    const r = comparisonRange(opt.value, range);
+    const ok = fullyCovered(r, state.coverage);
+    opt.disabled = !ok;
+    opt.textContent = ok ? c.label : `${c.label} — no history for that window`;
+  }
+  /* If the chosen mode just became impossible, fall back rather than leaving a
+   * disabled option selected and the deltas unexplained. */
+  const chosen = $('#compare').selectedOptions[0];
+  if (chosen?.disabled) {
+    $('#compare').value = 'none';
+    state.cmpMode = 'none';
+    $('#cmp-custom').hidden = true;
+  }
+}
+
+function setRange(start, end, { note } = {}) {
+  const want = { start, end };
+  const got = clampToCoverage(want, state.coverage);
+  state.start = got.start;
+  state.end = got.end;
+  $('#start').value = got.start;
+  $('#end').value = got.end;
+  refreshComparisonOptions();
+
+  if (got.clamped) {
+    showBanner(
+      `${note || 'That range'} reaches back to ${fmtDay(want.start)}, but the dashboard stores ` +
+      `orders from ${fmtDay(state.coverage.start)}. Showing ${fmtDay(got.start)} – ${fmtDay(got.end)}.`,
+      true);
+  }
+  load();
+}
+
 $$('#presets button').forEach((btn) => btn.addEventListener('click', () => {
   $$('#presets button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  $('#period').value = '';
   const p = btn.dataset.preset;
   const today = state.today;
-  if (p === 'today') { state.start = today; state.end = today; }
-  else if (p === 'mtd') { state.start = today.slice(0, 8) + '01'; state.end = today; }
-  else { state.end = today; state.start = shiftDays(today, -(Number(p) - 1)); }
-  $('#start').value = state.start; $('#end').value = state.end;
-  load();
+  if (p === 'today') setRange(today, today);
+  else setRange(shiftDays(today, -(Number(p) - 1)), today);
 }));
+
+/* ---- period to date ---- */
+for (const p of PERIODS) {
+  const o = document.createElement('option');
+  o.value = p.key; o.textContent = p.label;
+  $('#period').appendChild(o);
+}
+$('#period').addEventListener('change', () => {
+  const kind = $('#period').value;
+  if (!kind) return;
+  // A period-to-date choice and a day-count preset are alternatives, so
+  // pressing one clears the other rather than leaving both looking active.
+  $$('#presets button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  const r = periodToDate(kind, state.today);
+  setRange(r.start, r.end, { note: PERIODS.find((x) => x.key === kind).label });
+});
 
 $('#apply').addEventListener('click', () => {
   const s = $('#start').value, e = $('#end').value;
   if (!s || !e) return;
   if (s > e) { showBanner('Start date must be on or before the end date.'); return; }
-  state.start = s; state.end = e;
   $$('#presets button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
-  load();
+  $('#period').value = '';
+  setRange(s, e);
+});
+
+/* ---- comparison ---- */
+for (const c of COMPARISONS) {
+  const o = document.createElement('option');
+  o.value = c.key; o.textContent = c.label;
+  $('#compare').appendChild(o);
+}
+$('#compare').value = 'none';
+
+$('#compare').addEventListener('change', async () => {
+  state.cmpMode = $('#compare').value;
+  $('#cmp-custom').hidden = state.cmpMode !== 'custom';
+  /* Only the compared window is fetched — the range on screen is already
+   * loaded, and re-reading it to change a baseline would be a wasted call. */
+  await loadComparison();
+  render();
+});
+
+$('#cmp-apply').addEventListener('click', async () => {
+  const s = $('#cmp-start').value, e = $('#cmp-end').value;
+  if (!s || !e) return;
+  if (s > e) { showBanner('Comparison start must be on or before its end date.'); return; }
+  state.cmpCustom = { start: s, end: e };
+  await loadComparison();
+  render();
 });
 
 $('#pause').addEventListener('click', () => {
@@ -2606,10 +2852,25 @@ state.coverage = cfg.coverage;
 
 // Nothing older than the coverage window is in storage, so don't let the date
 // picker ask for it.
-$('#start').min = cfg.coverage.start;
-$('#end').min = cfg.coverage.start;
-$('#start').max = cfg.coverage.end;
-$('#end').max = cfg.coverage.end;
+for (const el of ['#start', '#end', '#cmp-start', '#cmp-end']) {
+  $(el).min = cfg.coverage.start;
+  $(el).max = cfg.coverage.end;
+}
+
+/* The period menu is labelled once, with one difference from the comparisons
+ * only PARTLY fits is still offered, because a clamped Year to date is a
+ * useful answer as long as the page says what it clamped to. Only a period
+ * with no overlap at all is refused. */
+for (const opt of $$('#period option')) {
+  if (!opt.value) continue;
+  const r = periodToDate(opt.value, cfg.defaults.end);
+  const days = daysBetween(r.start, r.end);
+  const have = daysBetween(
+    r.start < cfg.coverage.start ? cfg.coverage.start : r.start, r.end);
+  if (have < days) opt.textContent += ` — ${have} of ${days} days stored`;
+}
+
+refreshComparisonOptions();
 
 const on = Object.entries(cfg.assistedRule.signals).filter(([, v]) => v).map(([k]) => k);
 $('#assistedrule').textContent = on.length
