@@ -1495,7 +1495,7 @@ function render() {
 
   $('#sub').textContent =
     `CLB XXIII · ${fmtDay(d.range.start)} – ${fmtDay(d.range.end)}` +
-    (state.cmpRange ? ` · vs ${fmtDay(state.cmpRange.start)} – ${fmtDay(state.cmpRange.end)}` : '') +
+    (state.cmpRange ? ` · vs ${cmpLabel(state.cmpRange)}` : '') +
     ` · every order in exactly one bucket · syncs every ${state.syncIntervalMin} min`;
 
   // A comparison that could not be made says why, once, rather than silently
@@ -1506,6 +1506,25 @@ function render() {
   renderChannelCard();   // no-op while the panel is closed
   renderCampaigns();
   renderTable();
+}
+
+/**
+ * Label a comparison window, carrying the YEAR whenever it differs from the
+ * range on screen.
+ *
+ * fmtDay drops the year, which is right for a range the reader already knows
+ * they are looking at and badly wrong for the thing beside it: a month-to-date
+ * against the previous year rendered as "Oct 1 – Oct 2 · vs Oct 1 – Oct 2",
+ * which reads as a bug rather than a comparison.
+ */
+function cmpLabel(r) {
+  const span = `${fmtDay(r.start)} – ${fmtDay(r.end)}`;
+  const y = r.start.slice(0, 4);
+  if (y === state.start.slice(0, 4) && r.end.slice(0, 4) === y) return span;
+  // A window that straddles New Year needs both years, not one.
+  return r.end.slice(0, 4) === y
+    ? `${span}, ${y}`
+    : `${fmtDay(r.start)} ${y} – ${fmtDay(r.end)} ${r.end.slice(0, 4)}`;
 }
 
 /**
@@ -1536,7 +1555,7 @@ function paintDelta(el, now, before, fmtNum = money0) {
     ? `<span class="flat">■ no change</span>`
     : `<b>${arrow} ${esc(shown)}</b><span>vs ${esc(fmtNum(before))}</span>`;
   el.title = state.cmpRange
-    ? `${fmtNum(now)} this range vs ${fmtNum(before)} over ${fmtDay(state.cmpRange.start)} – ${fmtDay(state.cmpRange.end)}`
+    ? `${fmtNum(now)} this range vs ${fmtNum(before)} over ${cmpLabel(state.cmpRange)}`
     : '';
 }
 
