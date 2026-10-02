@@ -26,6 +26,7 @@ const login = (await import('../netlify/functions/login.mjs')).default;
 const backfill = (await import('../netlify/functions/backfill-background.mjs')).default;
 const syncNow = (await import('../netlify/functions/sync-now.mjs')).default;
 const gate = (await import('../netlify/edge-functions/gate.js')).default;
+const { COVERAGE_DAYS } = await import('../lib/sync.js');
 
 const BASE = 'https://dash.example.com';
 const req = (p, init) => new Request(BASE + p, init);
@@ -43,7 +44,13 @@ check('backfill completes', (await res.text()) === 'done');
 res = await status(req('/api/status'));
 let st = await body(res);
 check('status reports ready after backfill', st.ready === true, `backfill=${st.backfill.status}`);
-check('status reports the coverage window', st.coverage.days === 90, JSON.stringify(st.coverage));
+/* 430 days since 2026-10-02 — a year plus a run-up, so Year to date is whole
+ * on 1 January and a year-on-year comparison has something behind it. Asserted
+ * against the library rather than a literal, so the two cannot drift. */
+check('status reports the coverage window',
+  st.coverage.days === COVERAGE_DAYS, JSON.stringify(st.coverage));
+check('the coverage window spans more than a year',
+  COVERAGE_DAYS > 365, `${COVERAGE_DAYS} days`);
 
 /* ---- 3. data now serves the payload -------------------------------------- */
 res = await data(req('/api/data?start=2026-08-11&end=2026-08-17'));

@@ -845,6 +845,172 @@ check('a draft order with a retail location is not treated as POS',
     bucketOf({ ...mobileDraft, salesChannel: 'Shopify Mobile for Android' }) === 'online');
 }
 
+/* ---- date ranges -----------------------------------------------------------
+ * The period-to-date presets and the comparison windows. All string
+ * arithmetic, all store-local, and all of it easy to get subtly wrong at a
+ * boundary nobody tests until January.
+ * -------------------------------------------------------------------------- */
+{
+  const {
+    periodToDate, comparisonRange, clampToCoverage, fullyCovered,
+    pctChange, daysBetween, shiftDays: rShift, WEEK_STARTS_ON,
+  } = await import('../public/ranges.js');
+
+  // --- period to date -------------------------------------------------------
+  check('weeks start on Monday, as Shopify reports them', WEEK_STARTS_ON === 1);
+
+  /* 2026-10-02 is a Friday. Monday of that week is the 28th of September, so
+   * week to date must cross the month boundary rather than stopping at the 1st. */
+  check('week to date runs back to Monday, across a month boundary', (() => {
+    const r = periodToDate('wtd', '2026-10-02');
+    return r.start === '2026-09-28' && r.end === '2026-10-02';
+  })());
+  check('on the Monday itself, week to date is one day', (() => {
+    const r = periodToDate('wtd', '2026-09-28');
+    return r.start === '2026-09-28' && daysBetween(r.start, r.end) === 1;
+  })());
+  /* The Sunday is the trap: with Monday weeks it belongs to the week that
+   * STARTED six days ago, not the one about to begin. */
+  check('Sunday belongs to the week that is ending, not the next one', (() => {
+    const r = periodToDate('wtd', '2026-10-04');   // a Sunday
+    return r.start === '2026-09-28' && daysBetween(r.start, r.end) === 7;
+  })());
+
+  check('month to date starts on the first', (() => {
+    const r = periodToDate('mtd', '2026-10-02');
+    return r.start === '2026-10-01' && r.end === '2026-10-02';
+  })());
+
+  check('quarter to date starts on the quarter, not the month', (() => {
+    const q4 = periodToDate('qtd', '2026-11-15');
+    const q1 = periodToDate('qtd', '2026-02-02');
+    const q3 = periodToDate('qtd', '2026-09-30');
+    return q4.start === '2026-10-01' && q1.start === '2026-01-01' && q3.start === '2026-07-01';
+  })());
+  check('the first day of a quarter is a one-day quarter to date', (() => {
+    const r = periodToDate('qtd', '2026-07-01');
+    return r.start === '2026-07-01' && daysBetween(r.start, r.end) === 1;
+  })());
+
+  check('year to date starts on 1 January', (() => {
+    const r = periodToDate('ytd', '2026-10-02');
+    return r.start === '2026-01-01' && daysBetween(r.start, r.end) === 275;
+  })());
+  check('an unknown period returns nothing rather than a wrong range',
+    periodToDate('decade', '2026-10-02') === null);
+
+  // --- comparison windows ---------------------------------------------------
+  check('previous period is the same length, ending the day before', (() => {
+    const r = comparisonRange('prev_period', { start: '2026-09-25', end: '2026-10-02' });
+    return r.end === '2026-09-24' && r.start === '2026-09-17'
+      && daysBetween(r.start, r.end) === 8;
+  })());
+  check('previous period for a single day is the day before', (() => {
+    const r = comparisonRange('prev_period', { start: '2026-10-02', end: '2026-10-02' });
+    return r.start === '2026-10-01' && r.end === '2026-10-01';
+  })());
+  check('previous period never overlaps the range it compares', (() => {
+    const range = { start: '2026-08-01', end: '2026-10-02' };
+    const r = comparisonRange('prev_period', range);
+    return r.end < range.start;
+  })());
+
+  check('previous year shifts the calendar year', (() => {
+    const r = comparisonRange('prev_year', { start: '2026-09-25', end: '2026-10-02' });
+    return r.start === '2025-09-25' && r.end === '2025-10-02';
+  })());
+  /* 2028 is a leap year, 2027 is not. Shifting 29 February back a year has to
+   * land on the 28th; rolling into 1 March would silently compare the wrong
+   * day and nobody would notice until four years later. */
+  check('29 February folds back to the 28th, it does not roll into March',
+    comparisonRange('prev_year', { start: '2028-02-29', end: '2028-02-29' }).start
+      === '2027-02-28');
+
+  check('match-day-of-week shifts 52 whole weeks', (() => {
+    const r = comparisonRange('prev_year_dow', { start: '2026-09-25', end: '2026-10-02' });
+    return r.start === '2025-09-26' && r.end === '2025-10-03';
+  })());
+  check('match-day-of-week really does preserve the weekday', (() => {
+    const day = (s) => new Date(`${s}T12:00:00Z`).getUTCDay();
+    const range = { start: '2026-09-25', end: '2026-10-02' };
+    const r = comparisonRange('prev_year_dow', range);
+    return day(r.start) === day(range.start) && day(r.end) === day(range.end);
+  })());
+  check('the plain previous year does NOT preserve the weekday', (() => {
+    // Which is the whole reason both options exist.
+    const day = (s) => new Date(`${s}T12:00:00Z`).getUTCDay();
+    const range = { start: '2026-09-25', end: '2026-10-02' };
+    const r = comparisonRange('prev_year', range);
+    return day(r.start) !== day(range.start);
+  })());
+
+  check('no comparison means no window', (() => {
+    const range = { start: '2026-09-25', end: '2026-10-02' };
+    return comparisonRange('none', range) === null && comparisonRange(null, range) === null;
+  })());
+  check('custom passes the dates through, and refuses half of a pair', (() => {
+    const range = { start: '2026-09-25', end: '2026-10-02' };
+    const ok = comparisonRange('custom', range, { start: '2025-01-01', end: '2025-01-31' });
+    const half = comparisonRange('custom', range, { start: '2025-01-01' });
+    return ok.start === '2025-01-01' && ok.end === '2025-01-31' && half === null;
+  })());
+
+  // --- coverage -------------------------------------------------------------
+  const coverage = { start: '2025-08-29', end: '2026-10-02' };
+  check('a range inside the stored window is left alone', (() => {
+    const r = clampToCoverage({ start: '2026-01-01', end: '2026-10-02' }, coverage);
+    return r.start === '2026-01-01' && r.clamped === false;
+  })());
+  check('a range that starts too early is clamped and says so', (() => {
+    const r = clampToCoverage({ start: '2024-01-01', end: '2026-10-02' }, coverage);
+    return r.start === '2025-08-29' && r.clamped === true;
+  })());
+  check('a half-covered comparison is refused, not quietly shortened', (() => {
+    // The failure this prevents: comparing a full month against eleven stored
+    // days of it and reporting the missing twenty as a collapse in trade.
+    const partly = { start: '2025-08-01', end: '2025-08-31' };
+    return fullyCovered(partly, coverage) === false
+      && clampToCoverage(partly, coverage).clamped === true;
+  })());
+  check('with no coverage known, everything is allowed', (() => {
+    const r = { start: '2020-01-01', end: '2020-01-31' };
+    return fullyCovered(r, null) === true && clampToCoverage(r, null).clamped === false;
+  })());
+
+  /* The headline reason the coverage window was widened: on 1 January, a
+   * 90-day store cannot answer "previous year" for anything. */
+  check('430 days of history covers a year-on-year comparison in January', (() => {
+    const today = '2027-01-15';
+    const cov = { start: rShift(today, -429), end: today };
+    const r = comparisonRange('prev_year', { start: '2027-01-01', end: today });
+    return fullyCovered(r, cov) === true;
+  })());
+  check('90 days of history could not', (() => {
+    const today = '2027-01-15';
+    const cov = { start: rShift(today, -89), end: today };
+    const r = comparisonRange('prev_year', { start: '2027-01-01', end: today });
+    return fullyCovered(r, cov) === false;
+  })());
+
+  // --- percentage change ----------------------------------------------------
+  check('percentage change is signed and ordinary', (() => {
+    return Math.abs(pctChange(150, 100) - 50) < 1e-9
+      && Math.abs(pctChange(50, 100) + 50) < 1e-9
+      && pctChange(100, 100) === 0;
+  })());
+  check('a zero baseline reports nothing rather than infinity',
+    pctChange(500, 0) === null && pctChange(0, 0) === null);
+
+  // --- day counting ---------------------------------------------------------
+  check('day counts are inclusive', daysBetween('2026-10-01', '2026-10-01') === 1
+    && daysBetween('2026-10-01', '2026-10-02') === 2);
+  check('day counts cross a daylight-saving boundary without drifting', (() => {
+    // US clocks go back on 2026-11-01. Counted as instants rather than
+    // calendar days this comes out at 31.04 and rounds wrong.
+    return daysBetween('2026-10-25', '2026-11-05') === 12;
+  })());
+}
+
 /* ---- online -> store -------------------------------------------------------
  * Store rule, 2026-09-29, from order #28512: a customer who signed up online on
  * an earlier day and then made their FIRST ever purchase at the till is credited
