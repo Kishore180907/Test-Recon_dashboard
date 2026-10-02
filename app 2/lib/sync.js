@@ -19,7 +19,18 @@ import {
 } from './repo.js';
 
 /** How far back the dashboard can look. Backfill seeds it; sync keeps it fresh. */
-export const COVERAGE_DAYS = Number(process.env.COVERAGE_DAYS) || 90;
+/* How much history the dashboard keeps. Raised from 90 to 430 on 2026-10-02,
+ * when the date controls gained Year to date and the year-on-year comparisons:
+ * a 90-day store could only answer YTD back to early July, and had nothing at
+ * all to compare a previous year against.
+ *
+ * 430 days is a deliberate figure — a full year plus a two-month run-up, so
+ * YTD is whole on 1 January and "previous year" can still reach back from any
+ * recent range. At roughly 700-1,300 orders a month, of which ~17% are non-POS
+ * and stored whole (the rest collapse to POS day totals), that is around 1,700
+ * order rows: a few hundred per month shard, well inside what a function can
+ * read and rewrite in its budget. */
+export const COVERAGE_DAYS = Number(process.env.COVERAGE_DAYS) || 430;
 
 /** Re-fetch slightly before the last sync so nothing slips through the gap. */
 const OVERLAP_MS = 5 * 60 * 1000;
