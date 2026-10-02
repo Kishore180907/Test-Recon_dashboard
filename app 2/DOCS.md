@@ -176,6 +176,28 @@ Two ShopifyQL queries per brand, cached in Blobs one key per brand (`TREND_TTL_M
 
 **The vendor name reaches a ShopifyQL string literal**, which makes this the one place in the app where user-controlled text meets a query language. `escapeVendor()` doubles single quotes and refuses anything carrying a backslash, a double quote, a newline or a control character. A brand nobody can chart is a far smaller problem than a query somebody else gets to finish writing. The blank-vendor group cannot be charted at all — `product_vendor = ''` matches nothing in ShopifyQL — so it says so rather than drawing a flat line at zero that reads as "this brand is dead".
 
+### Date ranges and comparisons
+
+Added 2026-10-02, matching Shopify's own controls. The arithmetic lives in `public/ranges.js` — a module rather than inline script, so the test suite imports the same code the page runs instead of a copy of it.
+
+**Period to date** — Week, Month, Quarter, Year. Weeks start **Monday**, confirmed against this store's own ShopifyQL output, where every `TIMESERIES week` bucket lands on a Monday; `WEEK_STARTS_ON` is the single constant to change for a Sunday store. Everything is calendar arithmetic on `YYYY-MM-DD` strings parsed at UTC midnight — never a `Date` in the viewer's timezone, or a dashboard opened in Los Angeles would compute a different "month to date" than the same store opened in New York.
+
+**Comparisons** — No comparison, Previous period, Previous year, Previous year (match day of week), Custom.
+
+| Mode | Window |
+|---|---|
+| Previous period | The same number of days, ending the day before this range starts. Not "last calendar month" — a 9-day range compares against the 9 days before it |
+| Previous year | Same calendar dates, one year back. 29 February folds to the 28th rather than rolling into March |
+| Previous year (match day of week) | Back 364 days — exactly 52 weeks, so a Saturday compares against a Saturday. For retail that matters more than the date |
+
+The comparison is a **second `/api/data` call**, diffed in the browser. Changing the comparison re-reads only the compared window; the range on screen is already loaded. `loadComparison()` never throws — a comparison is an extra, and the three tiles must render the range the person actually asked for even if it fails.
+
+**A partly-stored comparison is refused outright**, not quietly shortened. Comparing a full month against eleven stored days of it would report the missing twenty as a collapse in trade — a worse lie than showing nothing. The main range *is* clamped, because a shortened Year to date is still a useful answer as long as the page says what it clamped to.
+
+Availability is re-evaluated on every range change, not decided once at startup: with 430 days stored, "previous year" works for a week in October and does not for a 90-day window, which reaches back fifteen months. Judging it once by the longest preset would hide a comparison that works perfectly for the range on screen.
+
+Deltas carry direction by **arrow and sign**, never colour alone. A zero baseline prints the absolute change instead of a percentage — dividing by it would report an infinite rise the first time a bucket takes any money.
+
 ### Reconciling against Shopify Analytics
 
 The tiles sum `netPaymentSet` — cash actually collected, after refunds. Shopify's `net_sales` is gross minus discounts minus returns, *before* shipping and tax, and counts unpaid draft invoices at full value. The two will not match, and the gap is roughly the size of your open drafts.
@@ -205,7 +227,7 @@ The browser never talks to Shopify or Meta. Three jobs with very different time 
 ```
                     ┌──────────────────────────────────────────┐
    Shopify Admin ──▶│  backfill-background   up to 15 min      │
-   GraphQL          │  one-time 90-day seed, cursor checkpoint │──┐
+   GraphQL          │  one-time 430-day seed, checkpointed │──┐
                     └──────────────────────────────────────────┘  │
                     ┌──────────────────────────────────────────┐  │
    Shopify + Meta ─▶│  scheduled-sync        every 15 min, 30s │──┤
@@ -241,7 +263,7 @@ meta     lock          stops a cron tick and a manual refresh overlapping
 meta     shopify-token cached client-credentials token + expiry
 ```
 
-Month sharding keeps each read-modify-write small enough to finish inside a function's budget. A 90-day window touches at most four shards.
+Month sharding keeps each read-modify-write small enough to finish inside a function's budget. A 90-day window touches at most four shards; the full 430-day window touches fifteen.
 
 POS orders are keyed by order id inside each day bucket and the day total is re-derived on every write, so re-syncing the same order updates its amount instead of double-counting it.
 
@@ -269,7 +291,7 @@ netlify/functions/appconfig.mjs            GET  /api/config    rules and default
 netlify/functions/status.mjs               GET  /api/status    sync + backfill health
 netlify/functions/sync-now.mjs             POST /api/sync-now  the Refresh now button
 netlify/functions/scheduled-sync.mjs       cron, every 15 minutes
-netlify/functions/backfill-background.mjs  POST /api/backfill  one-time 90-day seed
+netlify/functions/backfill-background.mjs  POST /api/backfill  one-time 430-day seed
 netlify/functions/login.mjs                POST /api/login
 
 lib/classify.js      ← THE ONLY FILE TO EDIT TO CHANGE BUCKETING
@@ -325,7 +347,7 @@ Set in **Netlify → Site configuration → Environment variables**. Never in th
 
 ### Not set — code defaults apply
 
-`COVERAGE_DAYS` 90 · `SYNC_INTERVAL_MINUTES` 15 · `STORE_TIMEZONE` America/New_York · `SHOPIFY_API_VERSION` 2026-07 · `BACKFILL_PAGE_SIZE` 100
+`COVERAGE_DAYS` 430 · `SYNC_INTERVAL_MINUTES` 15 · `STORE_TIMEZONE` America/New_York · `SHOPIFY_API_VERSION` 2026-07 · `BACKFILL_PAGE_SIZE` 100
 
 ### Meta Ads — not set yet, required for the campaign panel
 
@@ -376,7 +398,7 @@ Push to `main` → Netlify builds from base directory `app 2` → publishes to `
 3. Set the environment variables from section 4.
 4. Open the site, sign in, click **Run backfill** — or
    `curl -X POST https://<site>.netlify.app/api/backfill -H "x-admin-key: $ADMIN_KEY"`.
-   A 90-day seed is roughly 29 pages and finishes in well under a minute; the page picks up progress on its own.
+   A 430-day seed is roughly 100 pages — about ten minutes. It checkpoints its cursor after every page and re-invokes itself before its time budget runs out, so it resumes rather than restarting; the page picks up progress on its own.
 5. The 15-minute cron takes over.
 
 To re-seed from scratch later: `POST /api/backfill?restart=1`.
