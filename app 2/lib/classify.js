@@ -72,7 +72,41 @@ export function isPOS(o) {
 
 import { localDateOf } from './timezone.js';
 
+/* -----------------------------------------------------------------------------
+ * SWITCHED OFF 2026-10-09, at the store's request, as a temporary hold.
+ *
+ * One flag, and nothing else was deleted: the rule, its reasoning, its tests
+ * and its fixtures all stay exactly where they were. Ripping it out would mean
+ * rebuilding the November sampling work — 50 POS orders hand-checked to find
+ * that 26 of them had the customer created at the till, one of them fourteen
+ * seconds before paying — from memory, and that evidence is the only reason
+ * the thresholds are where they are.
+ *
+ * WHAT TURNING IT OFF DOES. Every POS sale goes back to the POS reference
+ * figure, so the three tiles return to meaning strictly non-POS revenue and
+ * the POS strip matches Shopify's own POS channel total again. The 21 orders
+ * and $7,261 it had moved into Assisted over the previous ninety days go back
+ * to being invisible in the attribution view.
+ *
+ * ONE THING THAT MUST FOLLOW. A promoted sale was deliberately EVICTED from
+ * the POS day total when it was promoted, so that nothing counted twice. With
+ * the rule off it is no longer in a tile either, and until the sync writes it
+ * back it is in neither place — the money would simply vanish. Flipping this
+ * flag therefore requires a re-sync of the affected days; the backfill does it
+ * for the whole window. See the eviction note in lib/repo.js.
+ *
+ * TO TURN IT BACK ON: set ONLINE_TO_STORE=1 in the environment — a Netlify
+ * variable change and a cold start, no deploy — then re-run the backfill so the
+ * promotions and evictions are applied again.
+ *
+ * Read on every call rather than captured once at import, so the environment is
+ * the single source of truth and the tests can exercise BOTH states in one run
+ * instead of only whichever one happens to be configured.
+ * ---------------------------------------------------------------------------*/
+export const onlineToStoreEnabled = () => process.env.ONLINE_TO_STORE === '1';
+
 export function isOnlineAcquiredPOS(o) {
+  if (!onlineToStoreEnabled()) return false;
   if (!isPOS(o)) return false;
 
   // Their first ever order. customerOrders counts this one, so 1 means no
