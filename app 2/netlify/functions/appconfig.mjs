@@ -1,7 +1,7 @@
 /* GET /api/config — what the dashboard needs before its first data call. */
 
 import { STORE_TZ, todayLocal, daysAgoLocal } from '../../lib/timezone.js';
-import { ASSISTED_RULE } from '../../lib/classify.js';
+import { ASSISTED_RULE, onlineToStoreEnabled } from '../../lib/classify.js';
 import { COVERAGE_DAYS, coverageWindow } from '../../lib/sync.js';
 import { getWatermark, getBackfill } from '../../lib/repo.js';
 
@@ -15,6 +15,10 @@ export default async () => {
       defaults: { start: daysAgoLocal(6), end: todayLocal() },
       coverage: { ...coverageWindow(), days: COVERAGE_DAYS },
       syncIntervalMinutes: Number(process.env.SYNC_INTERVAL_MINUTES) || 15,
+      /* Whether an in-store sale can reach the Assisted tile. Sent so the
+       * page can hide the part of the guide that describes it rather than
+       * explaining a rule that is currently switched off. */
+      onlineToStore: onlineToStoreEnabled(),
       assistedRule: {
         mode: ASSISTED_RULE.mode,
         signals: Object.fromEntries(

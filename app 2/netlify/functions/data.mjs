@@ -10,6 +10,7 @@ import {
 } from '../../lib/repo.js';
 import { buildPayload } from '../../lib/payload.js';
 import { metaCredentialMode } from '../../lib/meta.js';
+import { isPOS } from '../../lib/classify.js';
 import { todayLocal, daysAgoLocal, STORE_TZ } from '../../lib/timezone.js';
 import { COVERAGE_DAYS, coverageWindow } from '../../lib/sync.js';
 
@@ -80,7 +81,12 @@ export default async (req) => {
           generatedAt: watermark?.lastSyncISO || null,
           syncedAt: watermark?.lastSyncAt || null,
           syncBy: watermark?.by || null,
-          ordersInStore: orders.length,
+          /* Rows the three tiles will actually show. A POS order can be in
+           * storage without being in a tile — it is promoted into one only
+           * while the online-to-store rule is on, and the stored copy
+           * outlives the rule being switched off. Counting the raw shard
+           * would make "Orders in view" disagree with the tiles beside it. */
+          ordersInStore: orders.filter((o) => !isPOS(o)).length,
           timezone: STORE_TZ,
           coverage: cover,
           backfill: backfill?.status || null,
