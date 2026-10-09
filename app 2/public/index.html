@@ -855,7 +855,7 @@
   <div class="strip">
     <span>Non-POS revenue <b id="t-nonpos">—</b><span class="delta" id="d-nonpos" hidden></span></span>
     <span>Non-POS orders <b id="t-nonposn">—</b><span class="delta" id="d-nonposn" hidden></span></span>
-    <span title="In-store sales, kept out of the three tiles — except a first-ever purchase by a customer who signed up online before the day, which is credited to Assisted instead and is not counted here.">POS revenue (excluded) <b id="t-pos">—</b></span>
+    <span id="pos-strip" title="In-store sales, kept out of the three tiles.">POS revenue (excluded) <b id="t-pos">—</b></span>
     <span>All channels <b id="t-all">—</b></span>
     <span>Orders in view <b id="t-cached">—</b></span>
   </div>
@@ -1069,21 +1069,21 @@
               it is a Draft, whatever device it was written on.</li>
           <li><b>Assisted</b> Someone helped. Either a staff member is credited on the order note,
               or the customer came in through an ad or a marketing email before buying.
-              It also holds the <b>online → store</b> sales: a customer who signed up on the
-              site on an earlier day and then made their <em>first ever</em> purchase at the
-              till. Marketing found them, one of your team closed them, and the row says
-              <span class="keyline">POS</span> under Converted via so you can see where the
-              money actually changed hands.</li>
+              <span data-o2s hidden>It also holds the <b>online → store</b> sales: a customer who
+              signed up on the site on an earlier day and then made their <em>first ever</em>
+              purchase at the till. Marketing found them, one of your team closed them, and the
+              row says <span class="keyline">POS</span> under Converted via so you can see where
+              the money actually changed hands.</span></li>
           <li><b>Draft</b> Written up by hand in Shopify and sent to the customer as an invoice —
               and the customer arrived on their own, with no ad or campaign in their history.</li>
         </ul>
         <div class="callout">
-          <b>In-store sales are not in here</b> — with one exception. Anything rung up on the
-          POS is counted separately in the strip under the tiles, so it never inflates these
-          three numbers. The exception is a customer who signed up online before the day and
-          then bought in store for the first time: that one lands in Assisted, because
-          crediting it to nobody would hide the work that produced it. It leaves the POS
-          figure when it does, so nothing is counted twice.
+          <b>In-store sales are not in here.</b> Anything rung up on the POS is counted
+          separately in the strip under the tiles, so it never inflates these three numbers.
+          <span data-o2s hidden>The one exception is a customer who signed up online before the
+          day and then bought in store for the first time: that one lands in Assisted, because
+          crediting it to nobody would hide the work that produced it. It leaves the POS figure
+          when it does, so nothing is counted twice.</span>
         </div>
       </section>
 
@@ -2890,6 +2890,17 @@ for (const opt of $$('#period option')) {
 }
 
 refreshComparisonOptions();
+
+/* The online → store rule is switchable, and the guide must describe what the
+ * dashboard is actually doing. Showing the paragraph while the rule is off
+ * would have people hunting the Assisted tile for in-store sales that are not
+ * there, which is worse than saying nothing about it. */
+if (cfg.onlineToStore) {
+  $$('[data-o2s]').forEach((el) => { el.hidden = false; });
+  $('#pos-strip').title = 'In-store sales, kept out of the three tiles — except a '
+    + 'first-ever purchase by a customer who signed up online before the day, which is '
+    + 'credited to Assisted instead and is not counted here.';
+}
 
 const on = Object.entries(cfg.assistedRule.signals).filter(([, v]) => v).map(([k]) => k);
 $('#assistedrule').textContent = on.length
