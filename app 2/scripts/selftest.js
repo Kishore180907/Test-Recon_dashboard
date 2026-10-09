@@ -23,7 +23,7 @@ const {
 const { getJSON, setJSON } = await import('../lib/blobs.js');
 const { buildPayload } = await import('../lib/payload.js');
 const { isPOS, isDraft, isAssisted, isMarketingTouched, bucketOf, isEcommerceChannel, deviceLabel, isEbayOrder, isMobileAppChannel, hasOnlineTouchpoint, isDraftInvoiceLink,
-  isOnlineAcquiredPOS } = await import('../lib/classify.js');
+  isOnlineAcquiredPOS, onlineToStoreEnabled, annotate } = await import('../lib/classify.js');
 const { localDateOf } = await import('../lib/timezone.js');
 const auth = await import('../lib/auth.js');
 
@@ -66,51 +66,27 @@ check('re-syncing the same orders does not duplicate non-POS orders',
     await upsertOrders(all.slice(i, i + size));
   }
   const stored = await readOrders('2026-01-01', '2026-12-31');
-  /* Stored whole: everything non-POS, PLUS the online-acquired POS sales, which
-   * are kept as rows because they have to appear in the Assisted panel. */
-  const kept = all.filter((o) => !o.test && (!isPOS(o) || isOnlineAcquiredPOS(o)));
+  /* With the online-to-store rule OFF — which is how the store runs today —
+   * every POS order collapses to a day total and nothing else is stored whole.
+   * The flag-on behaviour has its own block further down. */
+  const kept = all.filter((o) => !o.test && !isPOS(o));
   check('every order survives a page-by-page backfill',
     stored.length === kept.length, `${stored.length} stored vs ${kept.length} expected`);
+  check('no POS order is stored whole while the rule is off',
+    stored.every((s) => !isPOS(s)));
 
   const posAfter = await readPosTotals('2026-01-01', '2026-12-31');
-  // ...and those same orders must have LEFT the day totals, or they are counted
-  // once in Assisted and again in the POS reference figure.
-  const posExpected = all.filter((o) => !o.test && isPOS(o) && !isOnlineAcquiredPOS(o))
+  const posExpected = all.filter((o) => !o.test && isPOS(o))
     .reduce((sum, o) => sum + o.netPayment, 0);
   check('POS day-totals survive a page-by-page backfill',
     near(posAfter.revenue, posExpected), `${posAfter.revenue.toFixed(2)} vs ${posExpected.toFixed(2)}`);
 
-  const promoted = all.filter((o) => !o.test && isPOS(o) && isOnlineAcquiredPOS(o));
-  check('the online-acquired POS sale is stored as a row, not a day total',
-    promoted.length > 0 && promoted.every((p) => stored.some((s) => s.id === p.id)),
-    `${promoted.length} promoted`);
-  check('and it is not also in the POS day totals',
-    !near(posAfter.revenue, posExpected + promoted.reduce((s, o) => s + o.netPayment, 0)));
-
-  /* Migration guard. Before this rule existed the sale WAS a POS day total, and
-   * nothing rebuilds history — so the sync has to evict it when it promotes it,
-   * or the same money is counted in Assisted and in the POS figure forever.
-   * Written here as the real sequence: store it the old way, then re-sync. */
-  {
-    const one = promoted[0];
-    const day = localDateOf(one.createdAt);
-    const month = day.slice(0, 7);
-    const shard = (await getJSON(ORDERS, `p/${month}`, { strong: true })) || {};
-    const entries = { ...(shard[day]?.entries || {}), [one.id]: one.netPayment };
-    const values = Object.values(entries);
-    shard[day] = { entries, orders: values.length, revenue: values.reduce((s, v) => s + v, 0) };
-    await setJSON(ORDERS, `p/${month}`, shard);
-
-    const stale = await readPosTotals('2026-01-01', '2026-12-31');
-    check('a pre-rule sync really did leave it in the POS totals',
-      near(stale.revenue, posExpected + one.netPayment),
-      `${stale.revenue.toFixed(2)}`);
-
-    await upsertOrders([one]);
-    const healed = await readPosTotals('2026-01-01', '2026-12-31');
-    check('re-syncing evicts it from the POS totals, with no rebuild',
-      near(healed.revenue, posExpected), `${healed.revenue.toFixed(2)} vs ${posExpected.toFixed(2)}`);
-  }
+  /* The fixture still carries the order that the rule WOULD promote. It has to
+   * be in the POS figure while the rule is off, or switching the rule off is a
+   * way to lose money rather than a way to stop reporting it. */
+  const candidate = all.find((o) => o.orderNumber === '#27418');
+  check('the online-to-store candidate is in the POS totals while the rule is off',
+    candidate && posExpected >= candidate.netPayment, `$${candidate?.netPayment}`);
 }
 
 /* ---- Meta Ads insights ---------------------------------------------------- */
@@ -300,21 +276,16 @@ for (const k of ['online', 'assisted', 'draft']) {
 }
 check('no order appears in two buckets in exclusive mode', dupes === 0, `${dupes} duplicates`);
 
-/* The only POS order allowed into a panel is an online-acquired one, and only
- * into Assisted. Ecommerce and Draft must still be free of in-store sales. */
+/* With the online-to-store rule off, NO in-store sale reaches any of the three
+ * panels — the original invariant, restored. The flag-on behaviour is asserted
+ * in its own block below. */
 {
   const posRows = (list) => list.filter((o) => /point of sale/i.test(o.channelName || ''));
-  check('no POS order reaches Ecommerce or Draft',
-    posRows([...b.online.orders, ...b.draft.orders]).length === 0);
-
-  const inAssisted = posRows(b.assisted.orders);
-  check('the POS orders in Assisted are the online-acquired ones',
-    inAssisted.length > 0 && inAssisted.every((o) => o.onlineAcquiredPOS === true),
-    `${inAssisted.length} rows`);
-  check('they say POS under Converted via',
-    inAssisted.every((o) => o.convertedVia === 'POS'));
-  check('they are all first-time buyers',
-    inAssisted.every((o) => o.orderIndex === 1));
+  check('no POS order reaches any of the three panels',
+    posRows([...b.online.orders, ...b.draft.orders, ...b.assisted.orders]).length === 0);
+  check('no row claims to be online-acquired while the rule is off',
+    [...b.online.orders, ...b.draft.orders, ...b.assisted.orders]
+      .every((o) => o.onlineAcquiredPOS === false));
 }
 
 check('overlay assisted is a superset of exclusive assisted',
@@ -1021,11 +992,37 @@ check('a draft order with a retail location is not treated as POS',
  * 22nd). The fail cases are the ones that make the rule worth having: #27890,
  * whose customer record was created FOURTEEN SECONDS before the sale, and
  * #27899, a regular with seventeen orders behind them.
+ *
+ * SWITCHED OFF for the store on 2026-10-09, as a temporary hold. These tests
+ * still run, with the flag turned on for the length of the block, because the
+ * rule is meant to come back and the evidence behind its thresholds — the
+ * sampling that found 26 of 50 POS customers created at the till — is not
+ * something anyone should have to rediscover. The off state is asserted at the
+ * end of the block, and again wherever the rest of the suite touches POS.
  * -------------------------------------------------------------------------- */
 {
   const pos = (over = {}) => ({
     sourceName: 'pos', appName: 'Point of Sale', channelHandle: 'pos', note: '', ...over,
   });
+
+  /* The live case, kept in scope so the off-state assertions at the end of the
+   * block can use the very same order the on-state ones do. */
+  const live28512 = pos({ createdAt: '2026-09-29T18:03:49Z',
+    customerSince: '2026-09-29T00:49:32Z', customerOrders: 1 });
+
+  check('the rule is off by default — nothing in store opts into it',
+    onlineToStoreEnabled() === false);
+  check('and while it is off, #28512 is a plain POS sale',
+    isOnlineAcquiredPOS(live28512) === false && bucketOf(live28512) === 'pos');
+  check('nothing is labelled online-acquired while it is off',
+    annotate(live28512).onlineAcquiredPOS === false
+    && deviceLabel(live28512) === null);
+
+  // Everything from here to the end of the block runs with the rule ON.
+  const restore = process.env.ONLINE_TO_STORE;
+  process.env.ONLINE_TO_STORE = '1';
+  check('the flag reads live, so it can be switched without a redeploy',
+    onlineToStoreEnabled() === true);
 
   // --- the two known live cases --------------------------------------------
   check('#28512 — Klaviyo signup the evening before, first purchase in store',
@@ -1086,6 +1083,74 @@ check('a draft order with a retail location is not treated as POS',
   check('a second order is refused even when the index is present',
     isOnlineAcquiredPOS(pos({ createdAt: '2026-09-29T18:03:49Z',
       customerSince: '2026-09-01T00:00:00Z', orderIndex: 2, customerOrders: 2 })) === false);
+
+  /* ---- storage, with the rule on -----------------------------------------
+   * Promotion and eviction are the half of this feature that touches stored
+   * data, so they are proved rather than assumed. The store is wiped, re-seeded
+   * with the rule on, asserted, then wiped and re-seeded with it off again so
+   * everything after this block sees the state the store actually runs in. */
+  {
+    await fs.rm(path.join(process.cwd(), '.blobs', 'orders'), { recursive: true, force: true });
+    await upsertOrders(page.orders);
+
+    const stored = await readOrders('2026-01-01', '2026-12-31');
+    const promoted = page.orders.filter((o) => !o.test && isPOS(o) && isOnlineAcquiredPOS(o));
+    const posExpected = page.orders
+      .filter((o) => !o.test && isPOS(o) && !isOnlineAcquiredPOS(o))
+      .reduce((s, o) => s + o.netPayment, 0);
+
+    check('with the rule on, the qualifying POS sale is stored as a row',
+      promoted.length > 0 && promoted.every((p) => stored.some((s) => s.id === p.id)),
+      `${promoted.length} promoted`);
+
+    const posOn = await readPosTotals('2026-01-01', '2026-12-31');
+    check('and it has left the POS day totals, so nothing counts twice',
+      near(posOn.revenue, posExpected), `${posOn.revenue.toFixed(2)}`);
+
+    /* Migration guard, in the direction that actually bites. Before the rule
+     * existed the sale WAS a day total, and nothing rebuilds history — so the
+     * sync has to evict it when it promotes it. Written as the real sequence:
+     * store it the old way, then re-sync. */
+    {
+      const one = promoted[0];
+      const day = localDateOf(one.createdAt);
+      const month = day.slice(0, 7);
+      const shard = (await getJSON(ORDERS, `p/${month}`, { strong: true })) || {};
+      const entries = { ...(shard[day]?.entries || {}), [one.id]: one.netPayment };
+      const values = Object.values(entries);
+      shard[day] = { entries, orders: values.length, revenue: values.reduce((s, v) => s + v, 0) };
+      await setJSON(ORDERS, `p/${month}`, shard);
+
+      check('a pre-rule sync really did leave it in the POS totals',
+        near((await readPosTotals('2026-01-01', '2026-12-31')).revenue,
+          posExpected + one.netPayment));
+
+      await upsertOrders([one]);
+      check('re-syncing evicts it from the POS totals, with no rebuild',
+        near((await readPosTotals('2026-01-01', '2026-12-31')).revenue, posExpected));
+    }
+
+    /* ---- and back off again ------------------------------------------------
+     * The reason switching the rule off needs a re-sync, proved rather than
+     * asserted in a comment: the promoted sale is in no tile and no day total
+     * until the sync writes it back. Money does not quietly vanish — but only
+     * because something puts it back. */
+    if (restore === undefined) delete process.env.ONLINE_TO_STORE;
+    else process.env.ONLINE_TO_STORE = restore;
+
+    const strandedPos = await readPosTotals('2026-01-01', '2026-12-31');
+    const one = promoted[0];
+    check('switching the rule off strands the promoted sale until a re-sync',
+      near(strandedPos.revenue, posExpected)
+      && bucketOf(one) === 'pos', `$${one.netPayment} in neither place`);
+
+    await fs.rm(path.join(process.cwd(), '.blobs', 'orders'), { recursive: true, force: true });
+    await upsertOrders(page.orders);
+    const healed = await readPosTotals('2026-01-01', '2026-12-31');
+    check('and a re-sync puts it back in the POS totals',
+      near(healed.revenue, posExpected + one.netPayment),
+      `${healed.revenue.toFixed(2)} vs ${(posExpected + one.netPayment).toFixed(2)}`);
+  }
 }
 
 /* ---- the invoice-link-only rule -------------------------------------------
