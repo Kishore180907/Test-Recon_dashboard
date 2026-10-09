@@ -74,6 +74,10 @@ The link test is `/\/do\/[0-9a-z]{16,}/i`, which matches both the storefront inv
 
 ### Online → store: the one POS sale that reaches a panel
 
+> **SWITCHED OFF 2026-10-09**, at the store's request, as a temporary hold. Every in-store sale is back in the POS reference figure, the three tiles mean strictly non-POS revenue again, and the POS strip matches Shopify's POS channel total. Nothing was deleted — the rule, its tests and its fixtures are all still here.
+>
+> **To turn it back on:** set `ONLINE_TO_STORE=1` in Netlify's environment variables (no deploy — the flag is read on every call, so a cold start is enough), **then re-run `/api/backfill?restart=1`**. The backfill is not optional: see *Flipping the flag* at the end of this section.
+
 Store rule, set 2026-09-29, from order **#28512**.
 
 **The case.** A customer clicked a Google Shopping listing, landed on a Chrome Hearts bracelet page, gave their email to the Klaviyo popup at 8:48 PM, and the next afternoon walked into Fairfield Commons, where Jake rang up **$3,700** — their first ever order. Marketing found that customer and a staff member closed them, which is the definition of an **Assisted** sale here. It was landing in POS, where nothing is credited to anyone.
@@ -96,6 +100,21 @@ Both are needed. Drop (1) and every regular who ever shopped in store counts, cr
 **What it costs.** The POS reference figure no longer matches Shopify's POS channel total; it is short by exactly these orders. The three tiles still sum to `totals.nonPosRevenue`, and `allRevenue` is still the true all-channels figure — nothing is double counted, the boundary simply moved.
 
 In the drill-down these rows carry an **online → store** chip, read **POS** under Converted via, and show **In store** as the device.
+
+#### Flipping the flag
+
+`onlineToStoreEnabled()` in `lib/classify.js` reads `ONLINE_TO_STORE` on every call rather than capturing it at import, so the environment is the single source of truth and the test suite exercises both states in one run.
+
+**Either direction requires a re-sync**, and the reason is the eviction. A promoted sale is deliberately removed from its POS day total so it is not counted once in Assisted and again in the POS figure. That means:
+
+| Flag goes | Without a backfill |
+|---|---|
+| **on → off** | The sale is in no tile *and* no day total. The money vanishes until the sync writes it back |
+| **off → on** | The sale is in a tile *and* still in its day total. The money is counted twice |
+
+`/api/config` ships the flag as `onlineToStore` so the guide inside the dashboard describes what the dashboard is actually doing — the two paragraphs about online → store are hidden while the rule is off, rather than sending people hunting the Assisted tile for in-store sales that are not there.
+
+Both directions are pinned by tests: *"switching the rule off strands the promoted sale until a re-sync"* and *"a re-sync puts it back in the POS totals"*.
 
 ### eBay is Ecommerce unconditionally
 
