@@ -3253,11 +3253,20 @@ $('#sh-copy').addEventListener('click', async () => {
   setTimeout(() => { $('#sh-copy').textContent = 'Copy'; }, 1600);
 });
 
+/* Opening the dialog starts one of these, and creating a link starts another
+ * moments later. The first can be a cold function call and come back LAST,
+ * painting its older answer over the newer one — which is exactly how a link
+ * that had just been created went missing from the list beside it. Only the
+ * most recent request is allowed to paint. */
+let listSeq = 0;
+
 async function loadReportList(justMade = null) {
   const wrap = $('#sh-list'), ul = $('#sh-items');
+  const seq = ++listSeq;
   try {
     const res = await fetch('/api/report');
     const body = await res.json();
+    if (seq !== listSeq) return;
     let rows = body.reports || [];
     if (justMade && !rows.some((r) => r.id === justMade.id)) rows = [justMade, ...rows];
     if (!rows.length) { wrap.hidden = true; return; }
@@ -3296,7 +3305,7 @@ async function loadReportList(justMade = null) {
     }
     wrap.hidden = false;
   } catch {
-    wrap.hidden = true;   // the list is a convenience; never block sending on it
+    if (seq === listSeq) wrap.hidden = true;   // a convenience; never block sending
   }
 }
 
