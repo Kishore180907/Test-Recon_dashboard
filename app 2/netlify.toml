@@ -56,6 +56,11 @@
 [functions."brandtrend"]
   timeout = 20
 
+# Creating a report reads the range AND its comparison window out of storage —
+# two passes of what /api/data does once. Storage only, never Shopify.
+[functions."report"]
+  timeout = 15
+
 [[headers]]
   for = "/*"
   [headers.values]

@@ -23,6 +23,8 @@ Splits store revenue three ways and lets you click into the orders behind each n
 
 POS is excluded from all three and shown once as a reference figure. It is 90%+ of order volume and would drown everything else.
 
+Any filtered view can be **sent as a report** — right-click a tile and a stakeholder gets those exact numbers behind a link that needs no password. Section 10.
+
 The bucket's internal key is still `online` throughout the API, the payload and the daily series — only the label changed. Renaming the key would break every stored payload and both test suites for no gain.
 
 ### Phone-written orders: how they reach the Ecommerce tile
@@ -301,11 +303,15 @@ Both were learned in production and both have a comment in the source saying so.
 
 ```
 public/index.html                          the entire dashboard — markup, CSS, JS, guide
+public/ranges.js                           period-to-date and comparison windows
+public/viewstate.js                        the view encoded into the URL hash
 public/guide/*.png                         six screenshots the in-page guide uses
 public/favicon.svg
 
 netlify/edge-functions/gate.js             password gate, runs in front of everything
 netlify/functions/data.mjs                 GET  /api/data      read + classify + aggregate
+netlify/functions/report.mjs               POST /api/report    freeze a view, list, revoke
+netlify/functions/reportview.mjs           GET  /r/<id>        the public report page
 netlify/functions/appconfig.mjs            GET  /api/config    rules and defaults for the UI
 netlify/functions/status.mjs               GET  /api/status    sync + backfill health
 netlify/functions/sync-now.mjs             POST /api/sync-now  the Refresh now button
@@ -315,6 +321,10 @@ netlify/functions/login.mjs                POST /api/login
 
 lib/classify.js      ← THE ONLY FILE TO EDIT TO CHANGE BUCKETING
 lib/payload.js       stored orders → the JSON the dashboard renders; the Meta join
+lib/snapshot.js      reads one range out of storage and shapes it — used by BOTH
+                     /api/data and a shared report, so they cannot drift
+lib/report.js        frozen findings: snapshot, 128-bit id, save, read, revoke
+lib/reportpage.js    one stored report → a self-contained HTML page, no JS
 lib/repo.js          storage layout, month shards, watermark, lock
 lib/blobs.js         Netlify Blobs in production, ./.blobs on disk locally
 lib/shopify.js       Admin GraphQL client, order normalisation
@@ -327,7 +337,7 @@ lib/timezone.js      store-local dates — every date in the app is New York, no
 fixtures/sample-orders.js   34 real non-POS orders + 6 POS, Aug 11–17
 fixtures/sample-meta.js     matching Meta campaign-days, in raw Graph API shape
 
-scripts/selftest.js         55 unit checks, no credentials needed
+scripts/selftest.js         354 unit checks, no credentials needed
 scripts/smoke.js            32 end-to-end checks against the real handlers
 scripts/dev-server.js       runs the real function handlers locally against ./.blobs
 scripts/capture-guide.mjs   regenerates the guide screenshots
@@ -345,6 +355,8 @@ netlify.toml         build, function timeouts, the cron, security headers
 | Sync frequency | `netlify.toml` `[functions."scheduled-sync"] schedule` **and** `SYNC_INTERVAL_MINUTES` (the header label) |
 | A column in the order table | `public/index.html` `renderTable()`, and `slim()` in `lib/payload.js` to supply the field |
 | The in-page guide | the `<section>` blocks inside `#guide-body` in `public/index.html` |
+| What a shared report shows | `lib/reportpage.js` for the page, `lib/report.js` for what is frozen into it |
+| What a shared link carries | `public/viewstate.js` — both the dashboard and the report's live link use it |
 | Guide screenshots | `npm run guide:capture` against a local dev server |
 
 ---
@@ -550,16 +562,68 @@ The backfill seeds the full 90 days in one request. Each 15-minute sync re-pulls
 
 ---
 
-## 10. Known limits
+## 10. Shared findings
+
+Someone filters the dashboard, sees something a stakeholder needs to know about, right-clicks it and sends it. The stakeholder opens a link, sees those exact numbers, and never needs the password.
+
+### The two links, which are not the same thing
+
+| | Needs the password | Numbers | For |
+|---|---|---|---|
+| **Copy link to this view** | yes | live | a colleague who has the dashboard |
+| **Send as report** | no | frozen | a stakeholder who does not |
+
+Both come off the same right-click menu, on any tile, the totals strip, the chart or the order table. The toolbar's **Share finding** button does the same thing — a right-click is not discoverable and does not exist on a phone.
+
+### What is frozen, and what is not
+
+`POST /api/report` takes a **range, a comparison mode and a bucket** — never a number. The figures are rebuilt server-side from storage through `lib/snapshot.js`, the same function `/api/data` uses. That is the point of the module existing: a report is evidence, and evidence a browser could have edited on its way out is not evidence.
+
+The stored record holds the three buckets, the totals, the daily series, the source breakdown, the comparison window resolved from its mode, and optionally the orders behind the focused bucket. It also holds the **view** — the filters it was taken from — which is what the "Open live view" button reassembles.
+
+### The link is the credential
+
+The id is 128 bits of randomness, 32 hex characters. There is no password, by choice: a stakeholder should not have to be given one, and the practical risk to a report is that someone forwards the link, which no password strength addresses.
+
+What that costs, stated plainly: **a forwarded link is forwarded access.** What keeps it bounded:
+
+- `/r/` is the only path the gate opens, and `reportview.mjs` can reach exactly one stored report — not the dashboard, not the order store, not another id
+- the id must match `^[0-9a-f]{32}$` before a storage key is built from it
+- a malformed, unknown and revoked id all answer the same 404, so a guessed id cannot reveal that it was once real
+- `no-store` and `noindex`, so a report never lands in a proxy cache or a search engine
+- **customer names are off by default** — the rows carry the sale and its attribution, not the person
+- any link can be revoked from the same dialog, which stops it for everyone holding it
+
+Revoking overwrites the record with a tombstone rather than deleting it, so the index and the report can never disagree about whether a link is live.
+
+### The page
+
+`lib/reportpage.js` returns one string. **No scripts, no stylesheet, no font, no CDN** — the chart is server-rendered SVG. Partly so it opens instantly on a phone with bad signal; mostly because a page with no JavaScript cannot be made to do anything other than show what was frozen into it.
+
+It redraws the dashboard's own chart — stacked bars, same rounded axis, same bucket colours, pinned against `public/index.html` by a test. A report that recolours or reshapes the finding makes the recipient do translation work to agree it is the same picture, which is the friction a report exists to remove.
+
+Everything a person typed goes through `esc()` at the point of interpolation. The selftest tries to smuggle a `<script>` through the title and an `onerror` through the note.
+
+### The URL state
+
+`public/viewstate.js` encodes the range, comparison and bucket into the **hash**, not the query string — a hash is never sent to a server and never lands in an access log. The search box is deliberately not part of it, so a shared link can never carry a customer's name.
+
+Every field is validated on the way back in. A link is something a stranger can type: `#start=2026-08-01` alone, a backwards range, `#bucket=../../etc` and an unknown comparison mode all come back as nothing rather than being passed to the API.
+
+---
+
+## 11. Known limits
 
 - Ranges older than `COVERAGE_DAYS` are refused — that data was never stored. Raise it and re-run the backfill.
 - Scheduled functions only run on published production deploys, not deploy previews.
 - Shopify's `staffMember` needs the `read_users` scope we do not request. Staff credit comes from order notes instead.
 - Netlify function logs are retained for 24 hours. Anything older is gone.
+- A shared report link has no password. Revoking is the only control; there is no expiry, and no record of who opened one.
+- A report is frozen at creation. Re-sending a finding after the numbers move means creating a new link, not refreshing an old one.
 - The repo is public. Nothing secret is in it, but it should be private.
 - `clb23-dashboard-netlify_1.zip` is still committed at the repo root and should be deleted.
 
-## 11. Open items
+## 12. Open items
 
 | | |
 |---|---|
