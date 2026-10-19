@@ -1,20 +1,14 @@
-/* GET /api/data — reads storage only. Never calls Shopify, so it can't time out. */
+/* GET /api/data — reads storage only. Never calls Shopify, so it can't time out.
+ *
+ * The reading and shaping live in lib/snapshot.js, which a shared report also
+ * calls. See the header there for why those two must not each have their own
+ * copy of it. */
 
-import {
-  readOrders,
-  readPosTotals,
-  readMetaInsights,
-  getWatermark,
-  getBackfill,
-  getOrderChannels,
-} from '../../lib/repo.js';
-import { buildPayload } from '../../lib/payload.js';
+import { getWatermark, getBackfill } from '../../lib/repo.js';
+import { loadRange, rangeProblem } from '../../lib/snapshot.js';
 import { metaCredentialMode } from '../../lib/meta.js';
-import { isPOS } from '../../lib/classify.js';
-import { todayLocal, daysAgoLocal, STORE_TZ } from '../../lib/timezone.js';
-import { COVERAGE_DAYS, coverageWindow } from '../../lib/sync.js';
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+import { todayLocal, daysAgoLocal } from '../../lib/timezone.js';
+import { coverageWindow } from '../../lib/sync.js';
 
 const json = (code, body) =>
   new Response(JSON.stringify(body), {
@@ -32,32 +26,12 @@ export default async (req) => {
    * way to count contradicts the whole point of a source of truth. The
    * parameter is ignored rather than rejected so an old bookmark still works;
    * it just gets the real numbers. */
-  const exclusive = true;
 
-  if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
-    return json(400, { error: 'start and end must be YYYY-MM-DD' });
-  }
-  if (start > end) return json(400, { error: 'start must be on or before end' });
-
-  const cover = coverageWindow();
-  if (start < cover.start) {
-    return json(400, {
-      error: `Outside the ${COVERAGE_DAYS}-day coverage window (earliest ${cover.start})`,
-      coverage: cover,
-    });
-  }
+  const bad = rangeProblem(start, end);
+  if (bad) return json(bad.status, bad.body);
 
   try {
-    const [orders, posTotals, metaInsights, watermark, backfill, orderChannels] =
-      await Promise.all([
-        readOrders(start, end),
-        readPosTotals(start, end),
-        readMetaInsights(start, end),
-        getWatermark(),
-        getBackfill(),
-        // Cached at sync time, so this stays a pure storage read.
-        getOrderChannels(),
-      ]);
+    const [watermark, backfill] = await Promise.all([getWatermark(), getBackfill()]);
 
     if (!watermark && (!backfill || backfill.status !== 'done')) {
       return json(503, {
@@ -67,37 +41,19 @@ export default async (req) => {
       });
     }
 
-    return json(
-      200,
-      buildPayload({
-        orders,
-        posTotals,
-        metaInsights,
-        orderChannels,
-        start,
-        end,
-        exclusive,
-        meta: {
-          generatedAt: watermark?.lastSyncISO || null,
-          syncedAt: watermark?.lastSyncAt || null,
-          syncBy: watermark?.by || null,
-          /* Rows the three tiles will actually show. A POS order can be in
-           * storage without being in a tile — it is promoted into one only
-           * while the online-to-store rule is on, and the stored copy
-           * outlives the rule being switched off. Counting the raw shard
-           * would make "Orders in view" disagree with the tiles beside it. */
-          ordersInStore: orders.filter((o) => !isPOS(o)).length,
-          timezone: STORE_TZ,
-          coverage: cover,
-          backfill: backfill?.status || null,
-          metaAds: {
-            credentials: metaCredentialMode(),
-            rowsInRange: metaInsights.length,
-            lastSync: watermark?.meta || null,
-          },
-        },
-      })
-    );
+    const payload = await loadRange(start, end, {
+      generatedAt: watermark?.lastSyncISO || null,
+      syncedAt: watermark?.lastSyncAt || null,
+      syncBy: watermark?.by || null,
+      coverage: coverageWindow(),
+      backfill: backfill?.status || null,
+      metaAds: {
+        credentials: metaCredentialMode(),
+        lastSync: watermark?.meta || null,
+      },
+    });
+
+    return json(200, payload);
   } catch (err) {
     return json(500, { error: String(err?.message || err) });
   }
