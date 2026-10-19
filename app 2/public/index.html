@@ -3230,7 +3230,15 @@ $('#sh-create').addEventListener('click', async () => {
     $('#sh-result').hidden = false;
     msg.textContent = 'Anyone with this link can open the report. They cannot reach the dashboard.';
     await copyText(body.url, $('#sh-url'));
-    loadReportList();
+    /* The row just created is passed in rather than waited for. The index is a
+     * separate blob, and a read issued a second after the write can land on a
+     * container that has not seen it yet — which showed up in production as a
+     * report that existed, worked, and was missing from the list beside it. */
+    loadReportList({
+      id: body.id, title: body.title, createdAt: body.createdAt,
+      range: { start: state.start, end: state.end },
+      includesNames: $('#sh-names').checked,
+    });
   } catch (err) {
     msg.className = 'shnote err';
     msg.textContent = `Could not create the report: ${err.message}`;
@@ -3245,12 +3253,13 @@ $('#sh-copy').addEventListener('click', async () => {
   setTimeout(() => { $('#sh-copy').textContent = 'Copy'; }, 1600);
 });
 
-async function loadReportList() {
+async function loadReportList(justMade = null) {
   const wrap = $('#sh-list'), ul = $('#sh-items');
   try {
     const res = await fetch('/api/report');
     const body = await res.json();
-    const rows = body.reports || [];
+    let rows = body.reports || [];
+    if (justMade && !rows.some((r) => r.id === justMade.id)) rows = [justMade, ...rows];
     if (!rows.length) { wrap.hidden = true; return; }
 
     ul.innerHTML = '';
