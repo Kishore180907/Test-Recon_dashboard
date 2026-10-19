@@ -764,6 +764,114 @@
     .guide figure img { min-width: 560px; }
     .guide figcaption { position: sticky; left: 0; }
   }
+
+  /* ---------- Share a finding ----------
+     Right-click a tile, the totals strip or the chart and send exactly what is
+     on screen to someone who has no password. The menu is a custom one because
+     the browser's own has nothing to offer here; it is kept to two items so it
+     reads instantly and never becomes a second menu bar. */
+  .ctxmenu {
+    position: fixed; z-index: 70; min-width: 232px; padding: 5px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-solid) 96%, transparent);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-lift);
+    display: none;
+  }
+  .ctxmenu.open { display: block; }
+  .ctxmenu .ctxwhat {
+    padding: 7px 10px 8px; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .06em;
+    border-bottom: 1px solid var(--border); margin-bottom: 4px;
+  }
+  .ctxmenu button {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: transparent; border: 0; border-radius: 8px;
+    padding: 8px 10px; font: inherit; font-size: 13px; color: var(--text-primary);
+  }
+  .ctxmenu button:hover { background: var(--wash); }
+  .ctxmenu button small { display: block; font-size: 11.5px; color: var(--text-muted); }
+
+  /* The target of a pending right-click keeps a ring while the menu is open, so
+     it is never ambiguous which number is about to be sent. */
+  [data-finding].ctxtarget { outline: 2px solid var(--series-online); outline-offset: 2px; }
+
+  .sh-scrim {
+    position: fixed; inset: 0; z-index: 80; display: none;
+    background: rgba(27,42,34,.30);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  .sh-scrim.open { display: block; }
+  .shbox {
+    position: fixed; z-index: 81; inset: 0; display: none;
+    padding: 0 18px 24px; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .shbox.open { display: block; }
+  .shcard {
+    max-width: 560px; margin: 7vh auto 0; border-radius: 16px;
+    background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-lift);
+    padding: 22px 24px 20px;
+  }
+  .shcard h2 { margin: 0 0 4px; font-size: 16px; font-weight: 640; letter-spacing: -.01em; }
+  .shcard .shsub { margin: 0 0 18px; font-size: 12.5px; color: var(--text-muted); }
+  .shcard label { display: block; font-size: 12px; color: var(--text-muted); margin: 14px 0 5px; }
+  .shcard input[type="text"], .shcard textarea {
+    width: 100%; padding: 8px 10px; border-radius: 9px;
+    border: 1px solid var(--border); background: var(--wash);
+    color: var(--text-primary); font: inherit; font-size: 13.5px;
+  }
+  .shcard textarea { min-height: 86px; resize: vertical; line-height: 1.5; }
+  .shcard input:focus, .shcard textarea:focus {
+    outline: 2px solid var(--series-online); outline-offset: 1px; border-color: transparent;
+  }
+  .shopt { display: flex; gap: 9px; align-items: flex-start; margin-top: 13px; font-size: 13px; }
+  .shopt input { margin: 3px 0 0; flex: 0 0 auto; }
+  .shopt small { display: block; color: var(--text-muted); font-size: 11.5px; }
+  .shrow { display: flex; gap: 9px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+  .shrow .spacer { flex: 1 1 auto; }
+  .btn.primary {
+    background: var(--series-online); border-color: transparent; color: #fff; font-weight: 600;
+  }
+  .btn.primary:hover { filter: brightness(.95); background: var(--series-online); color: #fff; }
+  .btn.primary:disabled { opacity: .55; cursor: default; }
+  .shnote { margin: 14px 0 0; font-size: 12.5px; min-height: 1px; }
+  .shnote.err { color: var(--series-draft); }
+  .shlink {
+    display: flex; gap: 8px; margin-top: 16px; padding: 12px;
+    border-radius: 10px; background: var(--wash); border: 1px solid var(--border);
+    align-items: center;
+  }
+  /* display:flex beats [hidden]'s display:none, so the empty link row showed
+     as a blank box before anything had been created. */
+  .shlink[hidden], .shlist[hidden] { display: none; }
+  .shlink input {
+    flex: 1 1 auto; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+  .shlist { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .shlist h3 { margin: 0 0 3px; font-size: 12.5px; font-weight: 600; }
+  .shlist p.hint { margin: 0 0 10px; font-size: 11.5px; color: var(--text-muted); }
+  .shlist ul { list-style: none; margin: 0; padding: 0; }
+  .shlist li {
+    display: flex; gap: 10px; align-items: baseline;
+    padding: 7px 0; border-top: 1px solid var(--border); font-size: 12.5px;
+  }
+  .shlist li:first-child { border-top: 0; }
+  .shlist li .t { flex: 1 1 auto; min-width: 0; }
+  .shlist li .t b { font-weight: 600; display: block; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .shlist li .t span { color: var(--text-muted); font-size: 11.5px; }
+  .shlist li button {
+    background: transparent; border: 1px solid var(--border); border-radius: 7px;
+    color: var(--text-muted); font: inherit; font-size: 11.5px; padding: 3px 9px; cursor: pointer;
+  }
+  .shlist li button:hover { color: var(--series-draft); border-color: var(--series-draft); }
+
+  @media (max-width: 560px) { .shcard { margin-top: 2vh; padding: 18px 16px; } }
 </style>
 </head>
 <body>
@@ -815,13 +923,18 @@
 
     <button class="btn" id="st-open" aria-expanded="false" aria-controls="st-card"
             title="Sell-through rate by brand, with days of stock left and capital on hand">Sell-through</button>
+    <!-- Right-clicking a tile does the same thing with that tile pre-selected.
+         This button exists because a right-click is not discoverable and does
+         not exist at all on a phone. -->
+    <button class="btn" id="share-open"
+            title="Freeze what is on screen and send it as a link — the stakeholder sees these exact numbers">Share finding</button>
     <button class="btn" id="pause">Pause</button>
     <button class="btn" id="refresh" title="Pull anything new from Shopify right now, instead of waiting for the next scheduled sync">Refresh now</button>
     <button class="btn" id="theme">Light</button>
   </div>
 
   <div class="tiles" id="tiles">
-    <button class="tile online" data-bucket="online" aria-selected="true">
+    <button class="tile online" data-bucket="online" data-finding="Ecommerce orders" aria-selected="true">
       <div class="tile-head"><span class="swatch"></span><span class="tile-name">ECOMMERCE ORDERS</span>
         <span class="tile-rule">all digital channels · not draft · not POS</span></div>
       <div class="hero" data-hero>—</div>
@@ -831,7 +944,7 @@
       <div class="sharepct" data-sharetext>—</div>
     </button>
 
-    <button class="tile assisted" data-bucket="assisted">
+    <button class="tile assisted" data-bucket="assisted" data-finding="Assisted orders">
       <div class="tile-head"><span class="swatch"></span><span class="tile-name">ASSISTED ORDERS</span>
         <span class="tile-rule" id="assistedrule">rule</span></div>
       <div class="hero" data-hero>—</div>
@@ -841,7 +954,7 @@
       <div class="sharepct" data-sharetext>—</div>
     </button>
 
-    <button class="tile draft" data-bucket="draft">
+    <button class="tile draft" data-bucket="draft" data-finding="Draft orders">
       <div class="tile-head"><span class="swatch"></span><span class="tile-name">DRAFT ORDERS</span>
         <span class="tile-rule">draft · not POS</span></div>
       <div class="hero" data-hero>—</div>
@@ -852,7 +965,7 @@
     </button>
   </div>
 
-  <div class="strip">
+  <div class="strip" data-finding="Revenue totals">
     <span>Non-POS revenue <b id="t-nonpos">—</b><span class="delta" id="d-nonpos" hidden></span></span>
     <span>Non-POS orders <b id="t-nonposn">—</b><span class="delta" id="d-nonposn" hidden></span></span>
     <span id="pos-strip" title="In-store sales, kept out of the three tiles.">POS revenue (excluded) <b id="t-pos">—</b></span>
@@ -860,7 +973,7 @@
     <span>Orders in view <b id="t-cached">—</b></span>
   </div>
 
-  <div class="card">
+  <div class="card" data-finding="Daily revenue by bucket">
     <div class="card-head">
       <div class="card-title">Daily revenue by bucket</div>
       <div class="legend">
@@ -992,7 +1105,9 @@
     </div>
   </div>
 
-  <div class="card">
+  <!-- data-finding has no label of its own: the right-click menu reads the
+       bucket name out of the table head, which is the one on screen. -->
+  <div class="card" data-finding="" id="tbl-card">
     <div class="table-head">
       <div class="table-title"><i id="tt-swatch"></i><span id="tt-name">Ecommerce orders</span></div>
       <span class="count-pill" id="tt-count">—</span>
@@ -1035,6 +1150,64 @@
   </header>
   <div class="jdrawer-body" id="j-body"></div>
 </aside>
+
+<!-- Right-click menu. Lives at the end of the body so it is never clipped by a
+     card's overflow, and is positioned in fixed coordinates by the handler. -->
+<div class="ctxmenu" id="ctxmenu" role="menu" aria-hidden="true">
+  <div class="ctxwhat" id="ctx-what">this view</div>
+  <button type="button" id="ctx-send" role="menuitem">Send as report…
+    <small>Freezes these numbers behind a private link</small></button>
+  <button type="button" id="ctx-copy" role="menuitem">Copy link to this view
+    <small>Same filters, live data, needs the password</small></button>
+</div>
+
+<div class="sh-scrim" id="sh-scrim"></div>
+<div class="shbox" id="shbox" role="dialog" aria-modal="true" aria-labelledby="sh-title" hidden>
+  <div class="shcard">
+    <h2 id="sh-title">Send as report</h2>
+    <p class="shsub" id="sh-sub">&nbsp;</p>
+
+    <label for="sh-title-in">What the stakeholder should see first</label>
+    <input type="text" id="sh-title-in" maxlength="160" placeholder="Assisted revenue is understated in Q3" />
+
+    <label for="sh-note">The finding, in your words</label>
+    <textarea id="sh-note" maxlength="2000"
+      placeholder="What you noticed, and what you want them to do about it. This is the part they will read."></textarea>
+
+    <label class="shopt" for="sh-rows">
+      <input type="checkbox" id="sh-rows" checked />
+      <span>Include the orders behind it
+        <small>The individual sales in the selected bucket, with how each was attributed.</small></span>
+    </label>
+
+    <label class="shopt" for="sh-names">
+      <input type="checkbox" id="sh-names" />
+      <span>Include customer names
+        <small>Off by default. The link has no password, so anyone it reaches sees whatever is on the page.</small></span>
+    </label>
+
+    <div class="shrow">
+      <div class="spacer"></div>
+      <button class="btn" id="sh-cancel">Cancel</button>
+      <button class="btn primary" id="sh-create">Create link</button>
+    </div>
+
+    <p class="shnote" id="sh-msg"></p>
+
+    <div class="shlink" id="sh-result" hidden>
+      <input type="text" id="sh-url" readonly />
+      <button class="btn" id="sh-copy">Copy</button>
+      <a class="btn" id="sh-open" target="_blank" rel="noreferrer">Open</a>
+    </div>
+
+    <div class="shlist" id="sh-list" hidden>
+      <h3>Links you have sent</h3>
+      <p class="hint">A link is the only credential. Revoking one stops it working for everyone
+        who has it — including anyone it was forwarded to.</p>
+      <ul id="sh-items"></ul>
+    </div>
+  </div>
+</div>
 
 <div class="guide-scrim" id="guide-scrim"></div>
 <div class="guide" id="guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" hidden>
@@ -1226,6 +1399,7 @@ import {
   PERIODS, COMPARISONS, periodToDate, comparisonRange,
   clampToCoverage, fullyCovered, pctChange, daysBetween,
 } from '/ranges.js';
+import { encodeView, decodeView } from '/viewstate.js';
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -2428,6 +2602,7 @@ function exportCSV() {
 $$('#tiles .tile[data-bucket]').forEach((t) => t.addEventListener('click', () => {
   state.bucket = t.dataset.bucket;
   $$('#tiles .tile[data-bucket]').forEach((x) => x.setAttribute('aria-selected', String(x === t)));
+  syncURL();
   renderTable();
   $('#tbl').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }));
@@ -2486,6 +2661,7 @@ function setRange(start, end, { note } = {}) {
       `orders from ${fmtDay(state.coverage.start)}. Showing ${fmtDay(got.start)} – ${fmtDay(got.end)}.`,
       true);
   }
+  syncURL();
   load();
 }
 
@@ -2534,6 +2710,7 @@ $('#compare').value = 'none';
 $('#compare').addEventListener('change', async () => {
   state.cmpMode = $('#compare').value;
   $('#cmp-custom').hidden = state.cmpMode !== 'custom';
+  syncURL();
   /* Only the compared window is fetched — the range on screen is already
    * loaded, and re-reading it to change a baseline would be a wasted call. */
   await loadComparison();
@@ -2545,6 +2722,7 @@ $('#cmp-apply').addEventListener('click', async () => {
   if (!s || !e) return;
   if (s > e) { showBanner('Comparison start must be on or before its end date.'); return; }
   state.cmpCustom = { start: s, end: e };
+  syncURL();
   await loadComparison();
   render();
 });
@@ -2857,6 +3035,262 @@ addEventListener('resize', () => {
   }, 150);
 });
 
+/* =============================================================================
+ *  SHARE A FINDING
+ * -----------------------------------------------------------------------------
+ *  Two separate things, often confused:
+ *
+ *   - "Copy link to this view" is a link to THIS dashboard with these filters.
+ *     Live numbers, and it needs the password. For colleagues.
+ *   - "Send as report" freezes the figures into a page behind a random link
+ *     that needs no password. For a stakeholder, who must see the finding as it
+ *     was when it was found — not whatever it has become by the time they open
+ *     their email.
+ *
+ *  The frozen figures are rebuilt server-side from storage for the range asked
+ *  about. Nothing on this page is sent to be stored as a number, deliberately:
+ *  a report is evidence, and evidence a browser could have edited on the way
+ *  out is not evidence.
+ * ========================================================================== */
+
+/** Everything needed to reopen the view on screen. Nothing identifying — the
+ *  search box is not part of it, so a shared link can never carry a customer's
+ *  name. */
+const currentView = () => ({
+  start: state.start,
+  end: state.end,
+  bucket: state.bucket,
+  cmpMode: state.cmpMode,
+  cmpCustom: state.cmpCustom,
+});
+
+/**
+ * Write the view into the address bar.
+ *
+ * replaceState, not a hash assignment: assigning fires hashchange, and pushing
+ * would make the back button walk through every date the person tried rather
+ * than taking them off the dashboard.
+ */
+function syncURL() {
+  const q = encodeView(currentView());
+  const next = `${location.pathname}${location.search}${q ? `#${q}` : ''}`;
+  history.replaceState(null, '', next);
+}
+
+const viewLink = () => `${location.origin}/#${encodeView(currentView())}`;
+
+/** Clipboard, with the fallback that works when the API is refused. */
+async function copyText(text, inputEl) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    if (!inputEl) return false;
+    inputEl.focus();
+    inputEl.select();
+    try { return document.execCommand('copy'); } catch { return false; }
+  }
+}
+
+/* ---- the right-click menu ---- */
+let ctxFinding = null;
+const shState = { finding: null };
+
+/** What the thing under the pointer is, in words a person would use. */
+function findingOf(el) {
+  if (el.dataset.bucket) return { label: el.dataset.finding, bucket: el.dataset.bucket };
+  /* The drill-down card is labelled by whichever bucket it is showing, so the
+     menu says "Assisted orders", not "the table". */
+  if (el.id === 'tbl-card') {
+    return { label: $('#tt-name').textContent.trim() || 'Orders', bucket: state.bucket };
+  }
+  /* The strip and the chart are about all three buckets. The rows still come
+     from the one the drill-down was open on, because that is what was on
+     screen — but no tile is pinned as "the finding", since none was clicked. */
+  return { label: el.dataset.finding || 'This view', bucket: null };
+}
+
+function closeCtx() {
+  $('#ctxmenu').classList.remove('open');
+  $('#ctxmenu').setAttribute('aria-hidden', 'true');
+  $$('.ctxtarget').forEach((e) => e.classList.remove('ctxtarget'));
+}
+
+document.addEventListener('contextmenu', (e) => {
+  const el = e.target.closest('[data-finding]');
+  if (!el || !state.data) return;          // ordinary right-click everywhere else
+  e.preventDefault();
+  ctxFinding = findingOf(el);
+
+  closeCtx();
+  el.classList.add('ctxtarget');
+  const m = $('#ctxmenu');
+  $('#ctx-what').textContent = ctxFinding.label;
+  m.classList.add('open');
+  m.setAttribute('aria-hidden', 'false');
+
+  /* Positioned after it is shown so the measured size is the real one, and
+     flipped rather than clipped near an edge. */
+  const r = m.getBoundingClientRect();
+  const x = Math.min(e.clientX, innerWidth - r.width - 8);
+  const y = e.clientY + r.height > innerHeight ? e.clientY - r.height : e.clientY;
+  m.style.left = `${Math.max(8, x)}px`;
+  m.style.top = `${Math.max(8, y)}px`;
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#ctxmenu')) closeCtx();
+});
+addEventListener('scroll', closeCtx, { passive: true });
+addEventListener('blur', closeCtx);
+
+$('#ctx-send').addEventListener('click', () => {
+  closeCtx();
+  openShare(ctxFinding);
+});
+
+$('#ctx-copy').addEventListener('click', async () => {
+  closeCtx();
+  const ok = await copyText(viewLink());
+  showBanner(ok
+    ? 'Link to this view copied. It opens on these filters with live data, and needs the dashboard password.'
+    : `Copy failed — the link is ${viewLink()}`, ok);
+});
+
+/* ---- the dialog ---- */
+function openShare(finding) {
+  const f = finding || findingOf($(`.tile[data-bucket="${state.bucket}"]`));
+  shState.finding = f;
+
+  const span = `${fmtDay(state.start)} – ${fmtDay(state.end)}`;
+  $('#sh-sub').textContent =
+    `${f.label} · ${span}${state.cmpRange ? ` · vs ${cmpLabel(state.cmpRange)}` : ''}` +
+    ' — frozen as they are now.';
+  $('#sh-title-in').value = `${f.label} · ${span}`;
+  $('#sh-note').value = '';
+  $('#sh-msg').textContent = '';
+  $('#sh-msg').className = 'shnote';
+  $('#sh-result').hidden = true;
+  $('#sh-create').disabled = false;
+  $('#sh-rows').disabled = !f.bucket && !state.bucket;
+
+  $('#shbox').hidden = false;
+  $('#shbox').classList.add('open');
+  $('#sh-scrim').classList.add('open');
+  $('#sh-title-in').focus();
+  $('#sh-title-in').select();
+  loadReportList();
+}
+
+function closeShare() {
+  $('#shbox').classList.remove('open');
+  $('#shbox').hidden = true;
+  $('#sh-scrim').classList.remove('open');
+}
+
+$('#share-open').addEventListener('click', () => openShare(null));
+
+/* Innermost first: a right-click menu open over the dialog closes alone. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if ($('#ctxmenu').classList.contains('open')) { closeCtx(); return; }
+  if (!$('#shbox').hidden) closeShare();
+});
+$('#sh-cancel').addEventListener('click', closeShare);
+$('#sh-scrim').addEventListener('click', closeShare);
+
+$('#sh-create').addEventListener('click', async () => {
+  const btn = $('#sh-create');
+  const msg = $('#sh-msg');
+  btn.disabled = true;
+  msg.className = 'shnote';
+  msg.textContent = 'Freezing the figures…';
+
+  try {
+    const res = await fetch('/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        start: state.start,
+        end: state.end,
+        bucket: shState.finding?.bucket || state.bucket,
+        cmpMode: state.cmpMode,
+        cmpCustom: state.cmpCustom,
+        title: $('#sh-title-in').value,
+        note: $('#sh-note').value,
+        rows: $('#sh-rows').checked,
+        names: $('#sh-names').checked,
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+
+    $('#sh-url').value = body.url;
+    $('#sh-open').href = body.url;
+    $('#sh-result').hidden = false;
+    msg.textContent = 'Anyone with this link can open the report. They cannot reach the dashboard.';
+    await copyText(body.url, $('#sh-url'));
+    loadReportList();
+  } catch (err) {
+    msg.className = 'shnote err';
+    msg.textContent = `Could not create the report: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#sh-copy').addEventListener('click', async () => {
+  const ok = await copyText($('#sh-url').value, $('#sh-url'));
+  $('#sh-copy').textContent = ok ? 'Copied' : 'Select it';
+  setTimeout(() => { $('#sh-copy').textContent = 'Copy'; }, 1600);
+});
+
+async function loadReportList() {
+  const wrap = $('#sh-list'), ul = $('#sh-items');
+  try {
+    const res = await fetch('/api/report');
+    const body = await res.json();
+    const rows = body.reports || [];
+    if (!rows.length) { wrap.hidden = true; return; }
+
+    ul.innerHTML = '';
+    for (const r of rows.slice(0, 12)) {
+      const li = document.createElement('li');
+      const t = document.createElement('div');
+      t.className = 't';
+      const b = document.createElement('b');
+      b.textContent = r.title;
+      const s = document.createElement('span');
+      s.textContent = `${fmtDay(r.range.start)} – ${fmtDay(r.range.end)} · sent ${fmtDate(r.createdAt)}`
+        + (r.includesNames ? ' · with customer names' : '');
+      t.append(b, s);
+
+      const copy = document.createElement('button');
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', async () => {
+        const ok = await copyText(`${location.origin}/r/${r.id}`);
+        copy.textContent = ok ? 'Copied' : 'Failed';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+      });
+
+      const rev = document.createElement('button');
+      rev.textContent = 'Revoke';
+      rev.addEventListener('click', async () => {
+        rev.disabled = true;
+        await fetch(`/api/report?id=${encodeURIComponent(r.id)}`, { method: 'DELETE' })
+          .catch(() => {});
+        loadReportList();
+      });
+
+      li.append(t, copy, rev);
+      ul.appendChild(li);
+    }
+    wrap.hidden = false;
+  } catch {
+    wrap.hidden = true;   // the list is a convenience; never block sending on it
+  }
+}
+
 /* ---------------- boot ---------------- */
 const cfg = await (await fetch('/api/config')).json();
 state.today = cfg.defaults.end;
@@ -2887,6 +3321,37 @@ for (const opt of $$('#period option')) {
   const have = daysBetween(
     r.start < cfg.coverage.start ? cfg.coverage.start : r.start, r.end);
   if (have < days) opt.textContent += ` — ${have} of ${days} days stored`;
+}
+
+/* A link can carry the view. Applied before the first load so the page never
+ * renders the default week and then jump-cuts to the linked range — and
+ * clamped like any other range, because a report shared fourteen months ago
+ * points at a window that has since fallen out of storage. */
+const linked = decodeView(location.hash);
+if (linked.start && linked.end) {
+  const got = clampToCoverage({ start: linked.start, end: linked.end }, state.coverage);
+  state.start = got.start;
+  state.end = got.end;
+  $('#start').value = got.start;
+  $('#end').value = got.end;
+  $$('#presets button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  if (got.clamped) {
+    showBanner(
+      `That link asks for ${fmtDay(linked.start)} – ${fmtDay(linked.end)}, but the dashboard ` +
+      `stores orders from ${fmtDay(state.coverage.start)}. Showing ` +
+      `${fmtDay(got.start)} – ${fmtDay(got.end)}.`, true);
+  }
+}
+if (linked.bucket) state.bucket = linked.bucket;
+if (linked.cmpMode) {
+  state.cmpMode = linked.cmpMode;
+  $('#compare').value = linked.cmpMode;
+  $('#cmp-custom').hidden = linked.cmpMode !== 'custom';
+  if (linked.cmpCustom) {
+    state.cmpCustom = linked.cmpCustom;
+    $('#cmp-start').value = linked.cmpCustom.start;
+    $('#cmp-end').value = linked.cmpCustom.end;
+  }
 }
 
 refreshComparisonOptions();
