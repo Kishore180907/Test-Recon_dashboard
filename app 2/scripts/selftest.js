@@ -1621,6 +1621,27 @@ check('cookies parse out of a multi-cookie header',
   check('report rows stop at the row limit',
     rep.reportRows(sample, { limit: 3 }).length === Math.min(3, sample.length));
 
+  /* The Channel column follows the dashboard's rule exactly: Shopify
+   * Analytics' own channel where the cached map has it, the Admin API's
+   * otherwise. A report that names the channel differently from the table it
+   * was taken from is a report someone has to reconcile by hand. */
+  check('report rows name the channel the way the dashboard does',
+    sample.every((o, i) => anon[i].channel === (o.salesChannel || o.channelName || null)));
+  check('a disagreement between the two channel sources is carried, not resolved', (() => {
+    const split = sample.find((o) => o.salesChannel && o.channelName &&
+      o.salesChannel.toLowerCase() !== o.channelName.toLowerCase());
+    if (!split) return true;                       // nothing to test in this fixture
+    const row = rep.reportRows([split])[0];
+    return row.channel === split.salesChannel && row.channelAdmin === split.channelName;
+  })());
+  check('matching channel sources do not print a redundant second line',
+    rep.reportRows(sample).every((r, i) => {
+      const o = sample[i];
+      const same = !o.salesChannel || !o.channelName ||
+        o.salesChannel.toLowerCase() === o.channelName.toLowerCase();
+      return same ? r.channelAdmin === null : true;
+    }));
+
   // --- the snapshot ---------------------------------------------------------
   const snap = await rep.buildSnapshot({
     start: '2026-08-01', end: '2026-08-31', bucket: 'online',
@@ -1742,6 +1763,13 @@ check('cookies parse out of a multi-cookie header',
     !/<script/i.test(plain) && !/\son\w+\s*=/i.test(plain));
   check('the report page loads nothing from anywhere else',
     !/https?:/i.test(plain) && !/\ssrc=/i.test(plain) && !/<link/i.test(plain));
+
+  check('the report page shows a Channel column', page.includes('<th>Channel</th>'));
+  check('an older report with no channel field still renders', (() => {
+    const legacy = JSON.parse(JSON.stringify(snap));
+    for (const r of legacy.rows) { delete r.channel; delete r.channelAdmin; }
+    return renderReportPage(legacy, {}).includes('<th>Channel</th>');
+  })());
 
   check('the report page carries the live-view link', page.includes('Open live view'));
   check('the report page says when the figures were frozen',
