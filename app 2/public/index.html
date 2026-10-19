@@ -3079,17 +3079,30 @@ function syncURL() {
 
 const viewLink = () => `${location.origin}/#${encodeView(currentView())}`;
 
-/** Clipboard, with the fallback that works when the API is refused. */
-async function copyText(text, inputEl) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
+/**
+ * Clipboard, with the fallback that works when the API is refused.
+ *
+ * The timeout is not belt and braces. navigator.clipboard.writeText does not
+ * always reject when it cannot write — in some states it simply never settles,
+ * waiting on a permission the page will not be granted. Awaited directly that
+ * left the share dialog's Create button disabled for good and its list of sent
+ * links never refreshed, after a report that had in fact been created
+ * perfectly well. A copy is a convenience; nothing may hang on one.
+ */
+function copyText(text, inputEl) {
+  const fallback = () => {
     if (!inputEl) return false;
     inputEl.focus();
     inputEl.select();
     try { return document.execCommand('copy'); } catch { return false; }
-  }
+  };
+  return Promise.race([
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(text))
+      .then(() => true)
+      .catch(fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback()), 1200)),
+  ]).catch(() => false);
 }
 
 /* ---- the right-click menu ---- */
@@ -3229,16 +3242,20 @@ $('#sh-create').addEventListener('click', async () => {
     $('#sh-open').href = body.url;
     $('#sh-result').hidden = false;
     msg.textContent = 'Anyone with this link can open the report. They cannot reach the dashboard.';
-    await copyText(body.url, $('#sh-url'));
+
     /* The row just created is passed in rather than waited for. The index is a
      * separate blob, and a read issued a second after the write can land on a
      * container that has not seen it yet — which showed up in production as a
-     * report that existed, worked, and was missing from the list beside it. */
+     * report that existed, worked, and was missing from the list beside it.
+     *
+     * Before the copy, deliberately: the link is already on screen, and the
+     * list must not be waiting on the clipboard. */
     loadReportList({
       id: body.id, title: body.title, createdAt: body.createdAt,
       range: { start: state.start, end: state.end },
       includesNames: $('#sh-names').checked,
     });
+    copyText(body.url, $('#sh-url'));
   } catch (err) {
     msg.className = 'shnote err';
     msg.textContent = `Could not create the report: ${err.message}`;
