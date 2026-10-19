@@ -526,6 +526,12 @@ Declaring the schedule in `netlify.toml` under `[functions."scheduled-sync"]` **
 
 **A test that passed or failed depending on luck.** The "a tampered token is rejected" check flipped the signature's last character to `'0'` — a no-op whenever the signature already ended in `'0'`. Now it flips to a guaranteed-different character.
 
+**A clipboard call that never answered.** Creating a report worked: the record was stored, the link was on screen, the page was live. And then the Create button stayed disabled for good and the list of sent links never refreshed — a send that had succeeded, presented as one that had failed. `navigator.clipboard.writeText` does not always reject when it cannot write; in some states it never settles at all, waiting on a permission the page will not be granted. It was being awaited in the middle of the handler. The list now refreshes **before** the copy is attempted, and the copy races a timeout and falls back to selecting the link. The rule this leaves behind: a convenience may never be awaited in the middle of something that matters.
+
+**A slow refresh painting over a newer one.** Found while chasing the above, and a separate bug. Opening the share dialog starts one request for the list of sent links; creating a link starts another moments later. The first was a cold function call and came back **last**, repainting its older answer over the newer one. Any two renders of the same thing from concurrent requests need a sequence check, and this one now has one.
+
+**A blob that had not caught up with its own write.** The report index is a separate blob from the reports. A read issued a second after the write can land on a container that has not seen it yet, so the row just created is passed into the refresh and merged in rather than waited for. Strong consistency is not instantaneous consistency.
+
 **A false alarm worth remembering.** Order #27652 looked missing from every bucket. It was not: Shopify's admin dates it 22 August because it was created at 00:42 UTC, which is 20:42 on the 22nd in New York. Every date in this app is store-local. When an order looks like it is in the wrong day, check the timezone before checking the code.
 
 ---
