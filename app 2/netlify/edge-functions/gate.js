@@ -8,10 +8,22 @@ import { verifyToken, readCookie, env } from '../../lib/auth.js';
 
 const OPEN_PATHS = new Set(['/api/login', '/favicon.ico']);
 
+/* Shared findings. A report is a frozen snapshot behind a 128-bit random id,
+ * meant for a stakeholder who has no dashboard password — so this prefix, and
+ * only this prefix, is served without one.
+ *
+ * The exception is this narrow on purpose. /r/<id> is handled by
+ * netlify/functions/reportview.mjs, which can reach exactly one stored report
+ * and nothing else: not the dashboard, not the order store, not another
+ * report's id. Widening the prefix, or letting a report page call /api/*, would
+ * turn an unguessable link into a way around the password. */
+const PUBLIC_PREFIX = '/r/';
+
 export default async (request, context) => {
   const url = new URL(request.url);
 
   if (OPEN_PATHS.has(url.pathname)) return context.next();
+  if (url.pathname.startsWith(PUBLIC_PREFIX)) return context.next();
 
   // The backfill re-invokes itself server-side and carries the admin key.
   const adminKey = env('ADMIN_KEY');
