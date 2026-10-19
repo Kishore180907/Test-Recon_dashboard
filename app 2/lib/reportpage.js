@@ -223,7 +223,8 @@ function rowsTable(snap) {
   const shown = snap.rows.length;
   const truncated = snap.rowsTotal && snap.rowsTotal > shown;
 
-  const head = ['Order', 'Date', 'Net sale', 'Converted via', 'Traffic source', 'First click', 'Device']
+  const head = ['Order', 'Date', 'Net sale', 'Converted via', 'Traffic source', 'First click',
+    'Channel', 'Device']
     .concat(snap.includesNames ? ['Customer'] : []);
 
   const body = snap.rows
@@ -235,6 +236,12 @@ function rowsTable(snap) {
         esc(r.convertedVia || '—'),
         esc(r.trafficSource || '—'),
         esc(r.firstClick || '—'),
+        /* Where the two sources disagree, both are shown. An eBay order has no
+         * sales channel at all and arrives as a hand-written draft, so
+         * replacing one with the other silently is how a marketplace sale ends
+         * up reading as someone at a desk writing up an order. */
+        esc(r.channel || '—') +
+          (r.channelAdmin ? `<span class="sub">via ${esc(r.channelAdmin)}</span>` : ''),
         esc(r.device || '—'),
       ];
       if (snap.includesNames) cells.push(esc(r.customerName || '—'));
@@ -393,6 +400,7 @@ export function renderReportPage(snap, { liveUrl = '' } = {}) {
   td { padding: 8px 10px 8px 0; border-top: 1px solid var(--line); white-space: nowrap; }
   .wfill { width: 28%; }
   .mono { font-variant-numeric: tabular-nums; font-weight: 600; }
+  td .sub { display: block; font-size: 11.5px; color: var(--soft); }
   .num { font-variant-numeric: tabular-nums; }
   footer { color: var(--soft); font-size: 12.5px; max-width: 70ch; }
   footer p { margin: 0 0 8px; }

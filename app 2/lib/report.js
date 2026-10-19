@@ -78,6 +78,16 @@ export function reportRows(orders = [], { names = false, limit = ROW_LIMIT } = {
     refunded: o.refunded,
     currency: o.currency,
     convertedVia: o.convertedVia,
+    /* Shopify Analytics' own channel where the map has it, the Admin API's
+     * otherwise — the same rule the dashboard's Channel column follows. The
+     * two are kept apart rather than merged: where they disagree, the report
+     * says so instead of quietly picking a winner. */
+    channel: o.salesChannel || o.channelName || null,
+    channelAdmin:
+      o.salesChannel && o.channelName &&
+      o.salesChannel.toLowerCase() !== o.channelName.toLowerCase()
+        ? o.channelName
+        : null,
     device: o.device,
     trafficSource: o.trafficSource || o.lastClick?.source || null,
     firstClick: o.firstClick?.source || null,
