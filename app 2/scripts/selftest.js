@@ -1541,6 +1541,279 @@ check('cookies parse out of a multi-cookie header',
     rep.channels.every((c, i, a) => i === 0 || a[i - 1].netSales >= c.netSales));
 }
 
+/* ---- shareable findings ---------------------------------------------------
+ * A report is a frozen copy of a filtered view, sent to someone who has no
+ * dashboard password. Three things have to hold or it is worse than nothing:
+ * its figures must equal the dashboard's, its link must be the only way in,
+ * and it must not leak a customer unless whoever sent it asked for that.
+ * -------------------------------------------------------------------------- */
+{
+  const { encodeView, decodeView } = await import('../public/viewstate.js');
+
+  // --- the URL state --------------------------------------------------------
+  const full = {
+    start: '2026-07-01', end: '2026-09-30', bucket: 'assisted',
+    cmpMode: 'custom', cmpCustom: { start: '2025-07-01', end: '2025-09-30' },
+  };
+  check('a full view round-trips through the URL', (() => {
+    const back = decodeView(`#${encodeView(full)}`);
+    return back.start === full.start && back.end === full.end
+      && back.bucket === 'assisted' && back.cmpMode === 'custom'
+      && back.cmpCustom.start === '2025-07-01' && back.cmpCustom.end === '2025-09-30';
+  })());
+
+  check('no comparison writes nothing into the link', (() => {
+    const q = encodeView({ start: '2026-08-01', end: '2026-08-07', cmpMode: 'none' });
+    return q === 'start=2026-08-01&end=2026-08-07';
+  })());
+
+  /* A link is something a stranger can type. Every one of these used to be a
+   * way to put a value the sender never chose in front of the next reader. */
+  check('half a range is no range', (() => {
+    const r = decodeView('#start=2026-08-01');
+    return r.start === null && r.end === null;
+  })());
+  check('a backwards range is refused', decodeView('#start=2026-09-01&end=2026-08-01').start === null);
+  check('an unknown bucket is dropped', decodeView('#bucket=../../etc').bucket === null);
+  check('an unknown comparison mode is dropped', decodeView('#cmp=whatever').cmpMode === null);
+  check('a custom comparison missing its dates is dropped', (() => {
+    const r = decodeView('#start=2026-08-01&end=2026-08-07&cmp=custom&cs=2026-07-01');
+    return r.cmpMode === 'custom' && r.cmpCustom === null;
+  })());
+  check('garbage in the hash does not throw', (() => {
+    for (const h of ['', '#', '#=&&=', '#start', '#start=yesterday&end=soon']) decodeView(h);
+    return true;
+  })());
+
+  // --- ids ------------------------------------------------------------------
+  const rep = await import('../lib/report.js');
+  const ids = new Set(Array.from({ length: 200 }, () => rep.newReportId()));
+  check('report ids are 32 hex characters', [...ids].every((i) => /^[0-9a-f]{32}$/.test(i)));
+  check('report ids do not repeat', ids.size === 200);
+  /* The id becomes a storage key, so anything that is not exactly 32 hex
+   * characters must be refused before a key is built from it. */
+  check('only 32 lowercase hex characters are a valid id', (() => {
+    const bad = ['', 'abc', 'A'.repeat(32), '../index', 'index',
+      'f'.repeat(31), 'f'.repeat(33), `${'f'.repeat(31)}/`, 'f'.repeat(32) + '\n'];
+    return bad.every((b) => !rep.validId(b)) && rep.validId('f'.repeat(32));
+  })());
+
+  // --- rows -----------------------------------------------------------------
+  const { loadRange } = await import('../lib/snapshot.js');
+  const live = await loadRange('2026-08-01', '2026-08-31');
+  const sample = live.buckets.online.orders;
+  check('the fixture range has orders to report on', sample.length > 0, `${sample.length}`);
+
+  const named = sample.find((o) => o.customerName);
+  const anon = rep.reportRows(sample);
+  check('report rows carry no customer name by default',
+    anon.every((r) => r.customerName === null));
+  check('report rows carry a name when asked for one',
+    !named || rep.reportRows(sample, { names: true }).some((r) => r.customerName === named.customerName));
+  /* The admin URL is a link into Shopify, and lifetime spend and order index
+   * describe the customer rather than the sale. None of it belongs behind a
+   * link with no password, so the row is rebuilt rather than passed through. */
+  check('report rows drop the admin link and the customer record', (() => {
+    const keys = new Set(anon.flatMap((r) => Object.keys(r)));
+    return !keys.has('adminUrl') && !keys.has('customerSpend')
+      && !keys.has('customerOrders') && !keys.has('orderIndex') && !keys.has('lastClick');
+  })());
+  check('report rows stop at the row limit',
+    rep.reportRows(sample, { limit: 3 }).length === Math.min(3, sample.length));
+
+  // --- the snapshot ---------------------------------------------------------
+  const snap = await rep.buildSnapshot({
+    start: '2026-08-01', end: '2026-08-31', bucket: 'online',
+    cmpMode: 'prev_period', title: 'August ecommerce', note: 'Line one.\n\nLine two.',
+  });
+
+  /* The whole promise of a report: the stakeholder sees what the dashboard
+   * showed. Both paths go through loadRange() so they cannot drift, and this
+   * is the check that notices if someone gives one of them its own copy. */
+  check('a report\'s figures equal the dashboard\'s for the same range',
+    near(snap.totals.nonPosRevenue, live.totals.nonPosRevenue)
+    && near(snap.totals.posRevenue, live.totals.posRevenue)
+    && snap.buckets.online.orderCount === live.buckets.online.orderCount
+    && snap.buckets.assisted.orderCount === live.buckets.assisted.orderCount
+    && snap.buckets.draft.orderCount === live.buckets.draft.orderCount,
+    `${snap.totals.nonPosRevenue.toFixed(2)} vs ${live.totals.nonPosRevenue.toFixed(2)}`);
+
+  check('the three buckets in a report still sum to its non-POS total',
+    near(snap.buckets.online.revenue + snap.buckets.assisted.revenue + snap.buckets.draft.revenue,
+      snap.totals.nonPosRevenue));
+
+  check('the comparison window is resolved server-side from the mode', (() => {
+    const c = snap.comparison;
+    return c && c.mode === 'prev_period'
+      && c.range.start === '2026-07-01' && c.range.end === '2026-07-31';
+  })());
+
+  /* The browser asks for a MODE, never two dates. Otherwise a report could
+   * claim a baseline the live view would never compute, and the "Open live
+   * view" link would contradict the page it sits on. */
+  check('a comparison the browser invents is ignored', (() => {
+    const q = encodeView(snap.view);
+    const back = decodeView(`#${q}`);
+    return back.cmpMode === 'prev_period' && back.cmpCustom === null;
+  })());
+
+  check('the stored view reopens the same filters', (() => {
+    const back = decodeView(`#${encodeView(snap.view)}`);
+    return back.start === '2026-08-01' && back.end === '2026-08-31' && back.bucket === 'online';
+  })());
+
+  /* Names off is the default AND has to be true of the whole document, not
+   * just the rows — a name reaching the page through some other field would be
+   * just as published. */
+  check('no customer name appears anywhere in a names-off snapshot',
+    !named || !JSON.stringify(snap).includes(named.customerName),
+    named ? named.customerName : 'no named customer in fixture');
+
+  const withNames = await rep.buildSnapshot({
+    start: '2026-08-01', end: '2026-08-31', bucket: 'online', names: true,
+  });
+  check('a names-on snapshot is marked as one', withNames.includesNames === true);
+  check('a report with no bucket in focus carries no rows', (() => {
+    return snap.rows !== null;
+  })() && (await rep.buildSnapshot({ start: '2026-08-01', end: '2026-08-31' })).rows === null);
+
+  /* /api/data refuses a range outside the coverage window. A report must refuse
+   * the same one — otherwise it would freeze a window whose "Open live view"
+   * link lands on a 400. */
+  check('a range outside stored history is refused with a 400', await (async () => {
+    try {
+      await rep.buildSnapshot({ start: '2019-01-01', end: '2019-01-31' });
+      return false;
+    } catch (err) { return err.status === 400; }
+  })());
+  check('a backwards range is refused', await (async () => {
+    try {
+      await rep.buildSnapshot({ start: '2026-08-31', end: '2026-08-01' });
+      return false;
+    } catch (err) { return err.status === 400; }
+  })());
+
+  // --- storage, and revoking ------------------------------------------------
+  const saved = await rep.saveReport(snap);
+  check('a saved report reads back by its id', (await rep.readReport(saved.id))?.title === 'August ecommerce');
+  check('a saved report is listed', (await rep.listReports()).some((r) => r.id === saved.id));
+
+  check('an unknown id reads as nothing', (await rep.readReport('a'.repeat(32))) === null);
+  check('a malformed id never reaches storage', (await rep.readReport('../index')) === null);
+
+  check('revoking a report works', await rep.revokeReport(saved.id));
+  /* A revoked link and a wrong one must be indistinguishable. Telling them
+   * apart would let someone holding a leaked id learn that it was once real. */
+  check('a revoked report reads exactly like an unknown one',
+    (await rep.readReport(saved.id)) === (await rep.readReport('b'.repeat(32))));
+  check('a revoked report drops out of the list',
+    !(await rep.listReports()).some((r) => r.id === saved.id));
+  check('revoking something that was never there is not an error',
+    (await rep.revokeReport('c'.repeat(32))) === false);
+
+  // --- the page -------------------------------------------------------------
+  const { renderReportPage, esc } = await import('../lib/reportpage.js');
+  check('esc covers all five characters',
+    esc('<a href="x">&\'</a>') === '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;',
+    esc('<a href="x">&\'</a>'));
+
+  const hostile = await rep.buildSnapshot({
+    start: '2026-08-01', end: '2026-08-31', bucket: 'assisted',
+    title: '<script>alert(1)</script>',
+    note: 'Look: <img src=x onerror="alert(2)"> and "quotes" & \'apostrophes\'.',
+  });
+  const page = renderReportPage(hostile, { liveUrl: 'https://example.test/#start=2026-08-01&end=2026-08-31' });
+
+  /* The page is a string this repo builds out of text a person typed. esc() is
+   * the only thing standing between those two facts. */
+  check('a title cannot smuggle a tag into the report page',
+    !/<script/i.test(page) && page.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  check('a note cannot smuggle a tag or an attribute into the report page',
+    !/<img/i.test(page) && page.includes('&lt;img src=x onerror=&quot;alert(2)&quot;&gt;'));
+  check('quotes and ampersands in a note survive as text, not as markup',
+    page.includes('&quot;quotes&quot;') && page.includes('&amp;') && page.includes('&#39;apostrophes&#39;'));
+
+  /* No scripts and no third-party anything, so the page cannot be made to do
+   * something other than show what was frozen into it — and still renders on a
+   * phone with no network left. Checked on a page with no hostile text in it,
+   * so an ESCAPED handler in someone's note cannot mask a real one. */
+  const plain = renderReportPage(snap, {});
+  check('the report page runs no JavaScript at all',
+    !/<script/i.test(plain) && !/\son\w+\s*=/i.test(plain));
+  check('the report page loads nothing from anywhere else',
+    !/https?:/i.test(plain) && !/\ssrc=/i.test(plain) && !/<link/i.test(plain));
+
+  check('the report page carries the live-view link', page.includes('Open live view'));
+  check('the report page says when the figures were frozen',
+    page.includes('These figures do not move'));
+
+  /* The report chart is the dashboard's chart: stacked bars, one per day that
+   * had orders, on the same rounded axis. A report that redraws the finding in
+   * a different shape makes the recipient do translation work to agree it is
+   * the same picture. */
+  const oneDay = await rep.buildSnapshot({ start: '2026-08-14', end: '2026-08-14', bucket: 'online' });
+  const dayPage = renderReportPage(oneDay, {});
+  check('a one-day report still draws its day',
+    !oneDay.daily.length || dayPage.includes('<rect'));
+  check('the report chart stacks bars, like the dashboard',
+    plain.includes('<rect') && !plain.includes('<polyline'));
+  check('every bar in the report chart is inside the plot area', (() => {
+    const bad = [...plain.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)]
+      .filter(([, x, y, w, h]) =>
+        Number(x) < 0 || Number(y) < 0 || Number(x) + Number(w) > 960 || Number(y) + Number(h) > 250.5);
+    return bad.length === 0;
+  })());
+
+  check('a names-off report page does not contain a customer name',
+    !named || !plain.includes(named.customerName));
+
+  /* A bucket must be the same colour in both places. The report is meant to be
+   * recognisable as the view it was taken from, and a swapped pair of swatches
+   * undoes that more completely than a wrong number would. */
+  check('the report colours each bucket the way the dashboard does', await (async () => {
+    const fsSync = await import('node:fs');
+    const css = fsSync.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+    const light = css.slice(css.indexOf(':root {'), css.indexOf(':root[data-theme="dark"]'));
+    const page2 = renderReportPage(snap, {});
+    return ['online', 'assisted', 'draft'].every((k) => {
+      const hex = (light.match(new RegExp(`--series-${k}:\\s*(#[0-9a-f]{6})`, 'i')) || [])[1];
+      return hex && page2.toLowerCase().includes(hex.toLowerCase());
+    });
+  })());
+}
+
+/* ---- the gate -------------------------------------------------------------
+ * The report route is the one path served without a password, so what the gate
+ * opens is now a security boundary rather than a convenience.
+ * -------------------------------------------------------------------------- */
+{
+  process.env.DASHBOARD_PASSWORD = 'test-password';
+  process.env.SESSION_SECRET = 'test-salt';
+  delete process.env.ADMIN_KEY;
+
+  const gate = (await import('../netlify/edge-functions/gate.js')).default;
+  const ctx = { next: () => new Response('passed through', { status: 299 }) };
+  const ask = async (path) =>
+    (await gate(new Request(`https://example.test${path}`), ctx)).status;
+
+  check('a report link opens without a password', (await ask('/r/' + 'f'.repeat(32))) === 299);
+  check('the report route is open as a prefix, not one exact path',
+    (await ask('/r/anything')) === 299);
+
+  /* Everything else must still be shut. If one of these ever answers 299, the
+   * password has stopped meaning anything. */
+  check('the dashboard still needs a password', (await ask('/')) === 401);
+  check('creating a report still needs a password', (await ask('/api/report')) === 401);
+  check('the data endpoint still needs a password', (await ask('/api/data')) === 401);
+  check('a path that merely starts with r is not open', (await ask('/report')) === 401);
+  check('the report prefix cannot be climbed out of', (await ask('/r')) === 401);
+
+  const withCookie = await gate(new Request('https://example.test/', {
+    headers: { cookie: `${auth.COOKIE}=${await auth.issueToken()}` },
+  }), ctx);
+  check('a valid session still gets the dashboard', withCookie.status === 299);
+}
+
 /* ---- GraphQL documents ----------------------------------------------------
  * Every query in lib/ is a JS template literal, so a JS comment inside one
  * looks fine to Node, to esbuild and to every mocked test — and then Shopify

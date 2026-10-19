@@ -26,6 +26,8 @@ const login = (await import('../netlify/functions/login.mjs')).default;
 const backfill = (await import('../netlify/functions/backfill-background.mjs')).default;
 const syncNow = (await import('../netlify/functions/sync-now.mjs')).default;
 const gate = (await import('../netlify/edge-functions/gate.js')).default;
+const report = (await import('../netlify/functions/report.mjs')).default;
+const reportview = (await import('../netlify/functions/reportview.mjs')).default;
 const { COVERAGE_DAYS } = await import('../lib/sync.js');
 
 const BASE = 'https://dash.example.com';
@@ -216,6 +218,76 @@ check('a valid cookie is let through', (await res.text()) === 'PASSTHROUGH');
 const tamperedCookie = cookie.slice(0, -1) + (cookie.endsWith('0') ? '1' : '0');
 res = await gate(req('/', { headers: { cookie: tamperedCookie } }), ctx);
 check('a tampered cookie is refused', res.status === 401);
+
+/* ---- shared findings, end to end -----------------------------------------
+ * Create a report through the real endpoint, open it through the real public
+ * one, revoke it, and open it again. The whole promise of the feature is that
+ * step three works without a session and step four stops working for everyone.
+ * -------------------------------------------------------------------------- */
+res = await report(req('/api/report', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    start: '2026-08-11', end: '2026-08-17', bucket: 'assisted',
+    cmpMode: 'prev_period', title: 'Assisted is understated', note: 'Check the invoice links.',
+  }),
+}));
+check('a report is created', res.status === 201);
+const made = await body(res);
+check('the report link is absolute and on this host',
+  made.url === `${BASE}/r/${made.id}`, made.url);
+check('the report id is 128 bits of hex', /^[0-9a-f]{32}$/.test(made.id));
+
+res = await reportview(req(`/r/${made.id}`));
+let page = await res.text();
+check('the report page renders for someone with no session', res.status === 200);
+check('the report page is not cacheable',
+  /no-store/.test(res.headers.get('cache-control') || ''));
+check('the report page is not indexable',
+  /noindex/.test(res.headers.get('x-robots-tag') || ''));
+check('the report page carries the finding', page.includes('Check the invoice links.'));
+check('the report page carries the live-view link', page.includes(`${BASE}/#start=2026-08-11`));
+
+/* Figures on the report must equal the figures /api/data serves for the same
+ * range. Both go through lib/snapshot.js; this is the check that notices if
+ * one of them ever gets its own copy of the read path. */
+res = await data(req('/api/data?start=2026-08-11&end=2026-08-17'));
+const live = await body(res);
+check('the report shows the same assisted revenue as the dashboard',
+  page.includes(new Intl.NumberFormat('en-US',
+    { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
+    .format(live.buckets.assisted.revenue)),
+  live.buckets.assisted.revenue.toFixed(2));
+
+res = await reportview(req('/r/' + 'f'.repeat(32)));
+check('an unknown report id is a 404', res.status === 404);
+res = await reportview(req('/r/not-an-id'));
+check('a malformed report id is the same 404', res.status === 404);
+
+res = await report(req(`/api/report?id=${made.id}`, { method: 'DELETE' }));
+check('a report can be revoked', res.status === 200);
+res = await reportview(req(`/r/${made.id}`));
+check('a revoked report stops working for everyone', res.status === 404);
+check('a revoked report answers like an unknown one',
+  !(await res.text()).includes('Assisted is understated'));
+
+res = await report(req('/api/report'));
+check('a revoked report is no longer listed',
+  !(await body(res)).reports.some((r) => r.id === made.id));
+
+res = await report(req('/api/report', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ start: '2019-01-01', end: '2019-01-31' }),
+}));
+check('a report outside the coverage window is refused', res.status === 400);
+
+/* The create endpoint is behind the gate; the view route is the only thing in
+ * front of it. If that ever inverts, the password stops meaning anything. */
+res = await gate(req(`/r/${made.id}`), ctx);
+check('the report route needs no password', (await res.text()) === 'PASSTHROUGH');
+res = await gate(req('/api/report', { method: 'POST' }), ctx);
+check('creating a report still needs one', res.status === 401);
 
 /* -------------------------------------------------------------------------- */
 console.log(`\n${failures ? `${failures} FAILED` : 'All smoke checks passed'}\n`);

@@ -44,7 +44,15 @@ const handlers = {
   '/api/login': (await import('../netlify/functions/login.mjs')).default,
   '/api/sync-now': (await import('../netlify/functions/sync-now.mjs')).default,
   '/api/backfill': (await import('../netlify/functions/backfill-background.mjs')).default,
+  '/api/report': (await import('../netlify/functions/report.mjs')).default,
 };
+
+/* Routes with a path parameter, which the exact-match table above cannot hold.
+ * /r/<id> is the public report page — the one route the gate lets through
+ * without a password, so it is worth having it behave the same locally. */
+const prefixHandlers = [
+  ['/r/', (await import('../netlify/functions/reportview.mjs')).default],
+];
 
 const gate = (await import('../netlify/edge-functions/gate.js')).default;
 
@@ -104,6 +112,9 @@ const server = http.createServer(async (req, res) => {
 
     const handler = handlers[pathname];
     if (handler) return send(res, await handler(request));
+    for (const [prefix, fn] of prefixHandlers) {
+      if (pathname.startsWith(prefix)) return send(res, await fn(request));
+    }
     return serveStatic(res, pathname);
   } catch (err) {
     console.error(err);
