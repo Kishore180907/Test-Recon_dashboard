@@ -61,6 +61,12 @@
 [functions."report"]
   timeout = 15
 
+# Reads a week of orders plus sixty days of Meta insight rows, then classifies
+# every touchpoint. Storage only, never Shopify — but it is more work than
+# /api/data does, so it gets the same headroom as the other read endpoints.
+[functions."budget"]
+  timeout = 15
+
 [[headers]]
   for = "/*"
   [headers.values]

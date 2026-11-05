@@ -23,6 +23,8 @@ Splits store revenue three ways and lets you click into the orders behind each n
 
 POS is excluded from all three and shown once as a reference figure. It is 90%+ of order volume and would drown everything else.
 
+The **Budget** button works out what to spend next week on Meta and Google from the orders in the last seven complete days. Section 11.
+
 Any filtered view can be **sent as a report** — right-click a tile and a stakeholder gets those exact numbers behind a link that needs no password. Section 10.
 
 The bucket's internal key is still `online` throughout the API, the payload and the daily series — only the label changed. Renaming the key would break every stored payload and both test suites for no gain.
@@ -310,6 +312,7 @@ public/favicon.svg
 
 netlify/edge-functions/gate.js             password gate, runs in front of everything
 netlify/functions/data.mjs                 GET  /api/data      read + classify + aggregate
+netlify/functions/budget.mjs               GET  /api/budget    next week's Meta and Google spend
 netlify/functions/report.mjs               POST /api/report    freeze a view, list, revoke
 netlify/functions/reportview.mjs           GET  /r/<id>        the public report page
 netlify/functions/appconfig.mjs            GET  /api/config    rules and defaults for the UI
@@ -321,6 +324,7 @@ netlify/functions/login.mjs                POST /api/login
 
 lib/classify.js      ← THE ONLY FILE TO EDIT TO CHANGE BUCKETING
 lib/payload.js       stored orders → the JSON the dashboard renders; the Meta join
+lib/budget.js        touchpoint classification, attribution split, budget recommendation
 lib/snapshot.js      reads one range out of storage and shapes it — used by BOTH
                      /api/data and a shared report, so they cannot drift
 lib/report.js        frozen findings: snapshot, 128-bit id, save, read, revoke
@@ -337,7 +341,7 @@ lib/timezone.js      store-local dates — every date in the app is New York, no
 fixtures/sample-orders.js   34 real non-POS orders + 6 POS, Aug 11–17
 fixtures/sample-meta.js     matching Meta campaign-days, in raw Graph API shape
 
-scripts/selftest.js         354 unit checks, no credentials needed
+scripts/selftest.js         395 unit checks, no credentials needed
 scripts/smoke.js            32 end-to-end checks against the real handlers
 scripts/dev-server.js       runs the real function handlers locally against ./.blobs
 scripts/capture-guide.mjs   regenerates the guide screenshots
@@ -356,6 +360,8 @@ netlify.toml         build, function timeouts, the cron, security headers
 | A column in the order table | `public/index.html` `renderTable()`, and `slim()` in `lib/payload.js` to supply the field |
 | The in-page guide | the `<section>` blocks inside `#guide-body` in `public/index.html` |
 | What a shared report shows | `lib/reportpage.js` for the page, `lib/report.js` for what is frozen into it |
+| What counts as a paid click | `classifyTouch()` in `lib/budget.js` — nothing else decides it |
+| How a budget is recommended | `recommend()` in `lib/budget.js`, plus the `BUDGET_*` environment variables |
 | What a shared link carries | `public/viewstate.js` — both the dashboard and the report's live link use it |
 | Guide screenshots | `npm run guide:capture` against a local dev server |
 
@@ -379,6 +385,15 @@ Set in **Netlify → Site configuration → Environment variables**. Never in th
 ### Not set — code defaults apply
 
 `COVERAGE_DAYS` 430 · `SYNC_INTERVAL_MINUTES` 15 · `STORE_TIMEZONE` America/New_York · `SHOPIFY_API_VERSION` 2026-07 · `BACKFILL_PAGE_SIZE` 100
+
+### Budget report — all optional, all with defaults
+
+| Variable | Default | What it changes |
+|---|---|---|
+| `BUDGET_TARGET_ROAS_META` | `4` | The return the Meta recommendation is sized to |
+| `BUDGET_TARGET_ROAS_GOOGLE` | `4` | The same for Google |
+| `BUDGET_MAX_WEEKLY_CHANGE` | `0.3` | How far a weekly budget may move in one step, up or down |
+| `GOOGLE_ADS_WEEKLY_SPEND` | *unset* | What is currently being spent on Google per week. There is no Google Ads connector here, so this is the only way the report can know. Left unset the Google tile says **not connected** and recommends from the target alone — it never assumes zero |
 
 ### Meta Ads — not set yet, required for the campaign panel
 
@@ -460,6 +475,7 @@ To re-seed from scratch later: `POST /api/backfill?restart=1`.
 | `/api/config` | GET | Rules and defaults the UI renders. |
 | `/api/sync-now` | POST | Refresh now. 26-second timeout. |
 | `/api/backfill?restart=1` | POST | Re-seed. Background function, needs `x-admin-key`. |
+| `/api/budget?end=` | GET | Next week's Meta and Google spend, from the last 7 complete days. Reads storage only. |
 | `/api/login` | POST | Issues the session cookie. |
 
 ### Access
@@ -618,7 +634,100 @@ Every field is validated on the way back in. A link is something a stranger can 
 
 ---
 
-## 11. Known limits
+## 11. Budget report
+
+What to spend next week on Meta and Google, worked out from the orders this store recorded rather than from what the ad platforms claim. Opened from the **Budget** button in the controls bar; `lib/budget.js` does the arithmetic, `/api/budget` reads the storage, and nothing is typed in by hand.
+
+### The window, and why it ends yesterday
+
+**The last seven complete days, in store time.** Today is excluded on purpose: a day that is still running always looks like a collapse in trade, and a budget nudged down every morning by a half-finished Tuesday would be wrong every morning. `?end=YYYY-MM-DD` moves the window for a back-test and refuses any date that is not yet complete.
+
+### What counts as paid
+
+This is the decision the whole report rests on, and it errs towards organic. Evidence of payment has to be *present*:
+
+| Platform | Counts as paid when |
+|---|---|
+| **Meta** | `fbclid` on the landing page; or a `utm_source` of facebook / fb / instagram / ig / meta / messenger **with** either a paid medium or a `utm_campaign` |
+| **Google** | `gclid`, `gbraid`, `wbraid`, `gad_source` or `gad_campaignid` on the landing page; or a `utm_source` of google / youtube **with** a paid medium |
+
+A paid medium is any token in the medium beginning `cpc`, `ppc`, `cpm`, `paid`, `ads`, `display`, `shopping`, `pmax`, `video` or `retarget`. Matched as **tokens, not as a substring**: `paid_social` splits to `paid` + `social` and counts, while `leads` stays one token and does not — a substring test would have found "ads" inside it and started budgeting against a mailing list.
+
+**A plain google.com or instagram.com referral is organic.** It is reported, in its own column of the totals strip, and never divided by a target ROAS. Budgeting against free traffic is the single most expensive mistake this file could make: it has the store paying for clicks it already gets.
+
+Meta gets the campaign-name shortcut and Google does not. Meta's own URL builder writes `utm_campaign` on paid placements and little else does, while `utm_source=google&utm_campaign=…` is something any newsletter tool will happily emit.
+
+Click ids are checked **before** UTMs, because the platform appends them itself and they survive a tracking template somebody forgot to fill — which is this store's live situation: the Google Ads template currently ships an unreplaced `{campaignname}` merge tag.
+
+### How an order's money divides
+
+Half to the first click and half to the last **when they differ**; all of it to the one visit when there is only one, or when Shopify recorded the same visit at both ends — which it does for a session that both opened and converted. An order with no journey at all is credited to nothing and lands in direct/other.
+
+Neither the ad that found the customer nor the click that closed them did the job alone, and every other weighting is a guess dressed as a number.
+
+The last portion takes the **remainder** rather than its own rounded half, so an odd-cent order divides into two amounts that add back to it exactly. Without that, a few hundred orders drift the totals apart by a few cents and the one assertion worth having — that no money went missing — starts failing for nothing.
+
+**Paid media + organic Google + organic Meta + direct/other = recorded sales.** Exactly, on every window. The selftest asserts it on the fixtures.
+
+### Which campaign
+
+In order, first hit wins:
+
+1. `gad_campaignid` or `utm_id` off the landing URL — an id, from the URL itself
+2. For Meta, the `utm_campaign` name joined to Meta's own campaign id via `campaignKey()` (section 9), looking back **60 days** of stored insights
+3. The `utm_campaign` name on its own
+4. A paid click with no tag at all → `(no campaign tag)`
+
+The 60-day lookback is why a campaign that was quiet all week still meets its own spend: names outlive any one week of it. Spend itself only ever comes from the seven days.
+
+### The recommendation
+
+```
+recommended weekly  =  attributed sales ÷ target ROAS
+```
+
+Everything interesting is the guard rails around that line:
+
+| Situation | What happens | Basis |
+|---|---|---|
+| Current spend known, target within ±30% | the target | `target` |
+| Target above the cap | +30% of current spend | `capped-up` |
+| Target below the cap | −30% of current spend | `capped-down` |
+| Spending, no recorded sales | spend × 0.7 — never zero | `step-down` |
+| Current spend is **zero** | the target, uncapped | `target` |
+| Current spend unknown | the target, uncapped | `target` |
+
+The cap exists because a week is a small sample: a budget that triples on one good week halves on the next quiet one. Switching a campaign off is a decision for a person, so spend with nothing to show for it steps down rather than landing on zero by arithmetic. And ±30% of zero is zero, which would hold a merely-paused campaign at nothing for ever — including one that is paused and still selling, which is the row most worth seeing.
+
+Under three orders the row is still produced and **labelled low confidence**. Hiding it would just mean nobody looks.
+
+### Where the spend figures come from
+
+**Meta** — the insight rows already synced into Blobs (section 9), summed over the window. Known when credentials are set *or* when rows exist: a configured account that spent nothing genuinely spent zero, and a token since removed does not unspend last week's money.
+
+**Google** — `GOOGLE_ADS_WEEKLY_SPEND`, because there is no Google Ads connector here. Unset, the tile says **not connected** and the recommendation stands on the target alone. Unknown is never rendered as zero: zero would make every recommendation a capped move away from nothing.
+
+A Meta campaign that **spent and sold nothing** still gets a row. It exists only on the spend side — no order points at it, so nothing in the order loop would create it — and it is the most useful row on the page.
+
+### The panel
+
+Three tiles over a sortable campaign table. The tiles reuse the hero tiles' own classes so the two read as one object, and live in `#bg-tiles` rather than `#tiles` — the bucket handler is bound with `$$('#tiles .tile[data-bucket]')`, so a click on "Meta · recommended weekly" cannot reach it and silently repoint the drill-down table at a different bucket.
+
+| Tile | Hero | Below it |
+|---|---|---|
+| **Estimated spend** | next 7 days | 14 and 30 days, and the same three at the recommended pace |
+| **Meta · recommended weekly** | the recommendation | change vs now, current spend, attributed sales, ROAS, share bar |
+| **Google · recommended weekly** | the same, or **—** | when nothing was recorded and no spend is known |
+
+The estimate uses each platform's **current** spend where it is known and its **recommendation** where it is not, and says which half is which — "the next 30 days will cost $X" means something different when half of X is a guess.
+
+Clicking a tile scopes the table to that platform; clicking a campaign row expands the orders behind it and how each sale was divided, down to the share and the amount credited. A sole visit is shown under **attributed sales** rather than under first or last touch: it is both, and putting it in either column would make that column disagree with its own count.
+
+The panel re-reads on every open, on **Recalculate**, and after **Refresh now**. Never cached in the page — a budget figure that is quietly eight hours old is worse than one that takes a second to arrive, because it is read as an instruction rather than as a status.
+
+---
+
+## 12. Known limits
 
 - Ranges older than `COVERAGE_DAYS` are refused — that data was never stored. Raise it and re-run the backfill.
 - Scheduled functions only run on published production deploys, not deploy previews.
@@ -626,10 +735,12 @@ Every field is validated on the way back in. A link is something a stranger can 
 - Netlify function logs are retained for 24 hours. Anything older is gone.
 - A shared report link has no password. Revoking is the only control; there is no expiry, and no record of who opened one.
 - A report is frozen at creation. Re-sending a finding after the numbers move means creating a new link, not refreshing an old one.
+- The budget report sees only what Shopify recorded on the customer journey. A click that converted on another device, or was stripped of its tags by an app browser, lands in direct/other and quietly understates whichever platform bought it.
+- Google spend is whatever `GOOGLE_ADS_WEEKLY_SPEND` says. Nothing checks it against Google.
 - The repo is public. Nothing secret is in it, but it should be private.
 - `clb23-dashboard-netlify_1.zip` is still committed at the repo root and should be deleted.
 
-## 12. Open items
+## 13. Open items
 
 | | |
 |---|---|
