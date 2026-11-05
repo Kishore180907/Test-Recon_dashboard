@@ -765,6 +765,65 @@
     .guide figcaption { position: sticky; left: 0; }
   }
 
+  /* ---------- Budget report ----------
+     Three tiles over a campaign table, reusing the hero tiles' own classes so
+     the two read as the same object. The tiles here are NOT bucket tiles: the
+     bucket handler is bound inside #tiles, and these live in #bg-tiles, which
+     is what keeps a click on "Meta · recommended weekly" from silently
+     repointing the drill-down table at a different bucket. */
+  .bg-tiles { display: grid; gap: 14px; margin-bottom: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+  @media (max-width: 900px) { .bg-tiles { grid-template-columns: 1fr; } }
+  .bg-tiles .tile.spend { --accent: var(--meta); }
+  .bg-tiles .tile.meta  { --accent: var(--series-assisted); }
+  .bg-tiles .tile.google{ --accent: var(--series-draft); }
+  .bg-tiles .hero { font-size: 28px; }
+  .bg-hero-sub { margin-top: 6px; font-size: 11.5px; color: var(--text-muted); }
+  .bg-lines { margin-top: 10px; display: grid; gap: 3px; font-size: 12px; }
+  .bg-lines div { display: flex; justify-content: space-between; gap: 12px; }
+  .bg-lines span { color: var(--text-muted); }
+  .bg-lines b { color: var(--text-secondary); font-weight: 620; font-variant-numeric: tabular-nums; }
+  .bg-note { margin-top: 9px; font-size: 11px; color: var(--text-muted); line-height: 1.45; }
+
+  /* Direction by arrow and sign, never colour alone — the same rule the
+     comparison deltas on the hero tiles follow. */
+  .bg-chg { font-variant-numeric: tabular-nums; font-weight: 620; }
+  .bg-chg.up { color: var(--good); }
+  .bg-chg.down { color: var(--critical); }
+  .bg-chg.flat { color: var(--text-muted); }
+
+  .chip {
+    display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: .04em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap;
+  }
+  .chip.meta   { color: var(--series-assisted); border-color: color-mix(in srgb, var(--series-assisted) 45%, transparent); }
+  .chip.google { color: var(--series-draft);    border-color: color-mix(in srgb, var(--series-draft) 45%, transparent); }
+  .chip.warn   { color: var(--warning);         border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+
+  #bg-table td, #bg-table th { vertical-align: top; }
+  #bg-table td.num, #bg-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #bg-table tbody tr.bg-row { cursor: pointer; }
+  #bg-table tbody tr.bg-row:hover > td { background: var(--wash); }
+  #bg-table tbody tr.bg-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  #bg-table tbody tr.bg-row.open > td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .bg-camp { font-weight: 620; }
+  .bg-camp .sub { display: block; font-size: 10.5px; color: var(--text-muted); font-weight: 400; }
+  .bg-sub { display: block; font-size: 10.5px; color: var(--text-muted); }
+
+  tr.bg-detail > td { padding: 0 0 14px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .bg-orders { padding: 12px 12px 2px; position: sticky; left: 0; }
+  .bg-orders h4 { margin: 0 0 3px; font-size: 12.5px; font-weight: 640; }
+  .bg-orders p.hint { margin: 0 0 9px; font-size: 11px; color: var(--text-muted); }
+  .bg-orders table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .bg-orders th { text-align: left; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--text-muted); font-weight: 600; padding: 0 10px 5px 0; }
+  .bg-orders td { padding: 5px 10px 5px 0; border-top: 1px solid var(--border); white-space: nowrap; }
+  .bg-orders td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bg-empty { margin: 10px 0 0; font-size: 12.5px; color: var(--text-muted); }
+  .bg-howto { font-size: 12px; color: var(--text-muted); line-height: 1.6; margin: 0 0 14px; }
+  .bg-howto b { color: var(--text-secondary); }
+
   /* ---------- Share a finding ----------
      Right-click a tile, the totals strip or the chart and send exactly what is
      on screen to someone who has no password. The menu is a custom one because
@@ -921,6 +980,8 @@
 
     <div class="spacer"></div>
 
+    <button class="btn" id="bg-open" aria-expanded="false" aria-controls="bg-card"
+            title="What to spend next week on Meta and Google, from the orders this store actually recorded">Budget</button>
     <button class="btn" id="st-open" aria-expanded="false" aria-controls="st-card"
             title="Sell-through rate by brand, with days of stock left and capital on hand">Sell-through</button>
     <!-- Right-clicking a tile does the same thing with that tile pre-selected.
@@ -988,6 +1049,88 @@
       </div>
     </div>
     <svg id="chart" role="img" aria-label="Daily revenue by bucket"></svg>
+  </div>
+
+  <!-- Opened from the Budget button in the controls bar. Reads its own
+       endpoint, which reads storage only — so it is allowed to fail on its own
+       without taking the rest of the page with it. Reloaded on every open and
+       after a sync rather than cached, because the whole point is that nobody
+       types a number into it. -->
+  <div class="card" id="bg-card" hidden>
+    <div class="card-head">
+      <div>
+        <div class="card-title">Budget report &middot; last 7 complete days</div>
+        <div class="card-sub" id="bg-sub">Loading…</div>
+      </div>
+      <div class="head-tools">
+        <button class="btn" id="bg-refresh" title="Re-read the orders and recalculate">Recalculate</button>
+        <button class="btn" id="bg-close">Close</button>
+      </div>
+    </div>
+
+    <div class="bg-tiles" id="bg-tiles">
+      <button type="button" class="tile spend" data-bg="all" aria-selected="true">
+        <div class="tile-head"><span class="swatch"></span><span class="tile-name">ESTIMATED SPEND</span>
+          <span class="tile-rule">next 7 days</span></div>
+        <div class="hero" id="bg-est">—</div>
+        <div class="bg-hero-sub" id="bg-est-basis">&nbsp;</div>
+        <div class="bg-lines" id="bg-est-lines"></div>
+        <p class="bg-note" id="bg-est-note"></p>
+      </button>
+
+      <button type="button" class="tile meta" data-bg="meta">
+        <div class="tile-head"><span class="swatch"></span><span class="tile-name">META &middot; RECOMMENDED WEEKLY</span>
+          <span class="tile-rule" id="bg-meta-target">target —</span></div>
+        <div class="hero" id="bg-meta-rec">—</div>
+        <div class="bg-hero-sub" id="bg-meta-chg">&nbsp;</div>
+        <div class="bg-lines" id="bg-meta-lines"></div>
+        <div class="sharebar"><i id="bg-meta-share" style="width:0%"></i></div>
+        <p class="bg-note" id="bg-meta-note"></p>
+      </button>
+
+      <button type="button" class="tile google" data-bg="google">
+        <div class="tile-head"><span class="swatch"></span><span class="tile-name">GOOGLE &middot; RECOMMENDED WEEKLY</span>
+          <span class="tile-rule" id="bg-google-target">target —</span></div>
+        <div class="hero" id="bg-google-rec">—</div>
+        <div class="bg-hero-sub" id="bg-google-chg">&nbsp;</div>
+        <div class="bg-lines" id="bg-google-lines"></div>
+        <div class="sharebar"><i id="bg-google-share" style="width:0%"></i></div>
+        <p class="bg-note" id="bg-google-note"></p>
+      </button>
+    </div>
+
+    <div class="strip" id="bg-totals"></div>
+
+    <p class="bg-howto">
+      <b>How it is worked out.</b> Every order in the window is split across the touchpoints
+      that brought it in — half to the first click and half to the last when they differ, all
+      of it to the one visit when they do not. A touch counts as <b>paid</b> only on real
+      evidence: a click id on the landing page, or a UTM that names a paid medium. A plain
+      google.com or instagram.com referral is <b>organic</b> — it is reported below, and never
+      budgeted for, because the store already gets those clicks free.
+      Recommended weekly is <b>attributed sales ÷ target ROAS</b>, held to
+      <span id="bg-cap">±30%</span> of what is being spent now so one good week cannot triple
+      a budget. <b>Click a tile</b> for the campaigns behind it, and a campaign for the orders.
+    </p>
+
+    <div class="tbl-scroll">
+      <table id="bg-table">
+        <thead>
+          <tr>
+            <th data-sort="campaign">Campaign</th>
+            <th data-sort="orders" class="num">Orders<span class="arr"></span></th>
+            <th data-sort="firstTouchSales" class="num">First touch<span class="arr"></span></th>
+            <th data-sort="lastTouchSales" class="num">Last touch<span class="arr"></span></th>
+            <th data-sort="attributedSales" class="num">Attributed sales<span class="arr"></span></th>
+            <th data-sort="spend" class="num">Spend 7d<span class="arr"></span></th>
+            <th data-sort="roas" class="num">ROAS<span class="arr"></span></th>
+            <th data-sort="recommendedWeekly" class="num">Recommended/wk<span class="arr"></span></th>
+          </tr>
+        </thead>
+        <tbody id="bg-body"></tbody>
+      </table>
+    </div>
+    <p class="bg-empty" id="bg-empty" hidden></p>
   </div>
 
   <!-- Opened from the Sell-through button in the controls bar. The only part of
@@ -1566,6 +1709,10 @@ async function syncNow() {
       throw new Error(body.error || `HTTP ${res.status}`);
     }
     await load();
+    /* A sync brings in new orders, so anything open that was computed from the
+     * old ones is now wrong. The budget panel is the one that matters: it is
+     * read as an instruction, not as a status. */
+    if (bgState.open) loadBudget();
   } catch (err) {
     setLive('err');
     showBanner(`Refresh failed: ${err.message}`);
@@ -2069,6 +2216,260 @@ function showChannelTip(e, day, series, i, money) {
  *  digits and colouring that red would condemn the whole book. See
  *  lib/sellthrough.js for the arithmetic behind that.
  * ======================================================================== */
+/* ===========================================================================
+ *  BUDGET REPORT
+ *  -------------------------------------------------------------------------
+ *  What to spend next week on Meta and Google, from the orders this store
+ *  actually recorded. Everything comes from /api/budget, which reads storage
+ *  only; nothing on this panel is typed in, which is the point of it.
+ *
+ *  Reloaded on every open, on Recalculate, and after a sync — never cached in
+ *  the page. A budget figure that is quietly eight hours old is worse than one
+ *  that takes a second to arrive.
+ * ========================================================================= */
+const bgState = {
+  open: false, scope: 'all', sort: 'attributedSales', dir: -1,
+  data: null, loading: false, openKey: null,
+};
+
+const BG_PLATFORM = { meta: 'Meta', google: 'Google' };
+
+/** A change against the current spend. Arrow and sign, never colour alone. */
+function bgChange(v) {
+  if (v == null) return '<span class="bg-chg flat">no current spend to compare</span>';
+  const p = v * 100;
+  if (Math.abs(p) < 0.05) return '<span class="bg-chg flat">no change</span>';
+  const cls = p > 0 ? 'up' : 'down';
+  return `<span class="bg-chg ${cls}">${p > 0 ? '▲ +' : '▼ '}${p.toFixed(1)}% vs now</span>`;
+}
+
+/** Why a recommendation is the number it is, in words rather than a code. */
+const BG_BASIS = {
+  target: 'at the target ROAS',
+  'capped-up': 'held to the weekly cap — the target is higher',
+  'capped-down': 'held to the weekly cap — the target is lower',
+  'step-down': 'spend with no recorded sales, so it steps down rather than to zero',
+};
+
+async function loadBudget() {
+  if (bgState.loading) return;
+  bgState.loading = true;
+  $('#bg-sub').textContent = 'Reading the last seven days…';
+  try {
+    const res = await fetch('/api/budget', { credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    bgState.data = body;
+    bgState.openKey = null;
+    renderBudget();
+  } catch (err) {
+    bgState.data = null;
+    $('#bg-sub').textContent = '';
+    $('#bg-totals').innerHTML = '';
+    $('#bg-body').innerHTML = '';
+    showBgEmpty(`Could not work out the budget. ${err.message}`);
+  } finally {
+    bgState.loading = false;
+  }
+}
+
+function showBgEmpty(msg) {
+  const el = $('#bg-empty');
+  el.hidden = false;
+  el.textContent = msg;
+}
+
+function renderBudget() {
+  const d = bgState.data;
+  if (!d) return;
+  $('#bg-empty').hidden = true;
+
+  const w = d.window;
+  $('#bg-sub').textContent =
+    `${fmtDay(w.start)} – ${fmtDay(w.end)} · ${int(d.totals.orders)} recorded orders · ` +
+    `target ${d.settings.targetRoasMeta}× Meta, ${d.settings.targetRoasGoogle}× Google`;
+  $('#bg-cap').textContent = `±${Math.round(d.settings.maxWeeklyChange * 100)}%`;
+
+  /* ---- the estimate tile ---- */
+  const e = d.estimate;
+  $('#bg-est').textContent = money(e.forecast[7]);
+  $('#bg-est-basis').textContent =
+    e.basis === 'current' ? 'at the pace being spent now'
+      : e.basis === 'recommended' ? 'at the recommended pace — no current spend is known'
+      : `${(e.knownPlatforms || []).map((k) => BG_PLATFORM[k]).join(' and ')} at its current pace, the rest at the recommended one`;
+  $('#bg-est-lines').innerHTML = [
+    ['Next 14 days', money(e.forecast[14])],
+    ['Next 30 days', money(e.forecast[30])],
+    ['At the recommended pace', `${money(e.atRecommended[7])} / wk`],
+  ].map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+  $('#bg-est-note').textContent =
+    `Recommended pace runs ${money(e.atRecommended[30])} over 30 days.`;
+
+  /* ---- the two platform tiles ---- */
+  for (const key of ['meta', 'google']) {
+    const p = d.platforms[key];
+    $(`#bg-${key}-target`).textContent = `target ${p.targetRoas}×`;
+    $(`#bg-${key}-rec`).textContent = money(p.recommendedWeekly);
+    $(`#bg-${key}-chg`).innerHTML = bgChange(p.changeVsNow);
+
+    const spend = p.spendKnown
+      ? money(p.currentWeeklySpend)
+      : '<span class="bg-chg flat">not connected</span>';
+    $(`#bg-${key}-lines`).innerHTML = [
+      ['Spending now', spend],
+      ['Attributed sales', esc(money2(p.attributedSales))],
+      ['ROAS', p.roas == null ? '—' : `${p.roas.toFixed(2)}×`],
+      ['Orders', esc(int(p.orders))],
+    ].map(([k, v]) => `<div><span>${esc(k)}</span><b>${v}</b></div>`).join('');
+
+    const share = d.totals.paidMediaSales > 0
+      ? (p.attributedSales / d.totals.paidMediaSales) * 100 : 0;
+    $(`#bg-${key}-share`).style.width = `${share.toFixed(1)}%`;
+
+    /* Nothing recorded and nothing known. A recommendation of $0 here would
+     * read as "spend nothing on Google", when what is true is that the week
+     * holds no evidence either way — and $0 is the one number somebody might
+     * actually act on. */
+    const silent = p.attributedSales === 0 && !p.spendKnown;
+    if (silent) {
+      $(`#bg-${key}-rec`).textContent = '—';
+      $(`#bg-${key}-chg`).innerHTML = '<span class="bg-chg flat">nothing to work from</span>';
+    }
+
+    const notes = [];
+    if (silent) {
+      notes.push(`No ${BG_PLATFORM[key]} touchpoints were recorded this week and no spend is known, so there is nothing to recommend from.`);
+    } else {
+      notes.push(`${share.toFixed(1)}% of paid-media sales, ${BG_BASIS[p.recommendBasis] || 'at the target ROAS'}.`);
+      if (p.confidence === 'low' && p.orders > 0) {
+        notes.push('Under three orders this week — treat it as a direction, not a figure.');
+      }
+      if (!p.spendKnown && key === 'meta') {
+        notes.push('No Meta spend is stored for this week, so there is nothing to cap the target against.');
+      }
+    }
+    if (!p.spendKnown && key === 'google') {
+      notes.push('Google Ads has no connector here — set GOOGLE_ADS_WEEKLY_SPEND to compare against what is actually being spent.');
+    }
+    $(`#bg-${key}-note`).textContent = notes.join(' ');
+  }
+
+  /* ---- totals strip ---- */
+  const t = d.totals;
+  $('#bg-totals').innerHTML = [
+    ['Recorded sales', money2(t.recordedSales)],
+    ['Paid media', money2(t.paidMediaSales)],
+    ['Organic Google', money2(t.organicGoogle)],
+    ['Organic Meta', money2(t.organicMeta)],
+    ['Direct / other', money2(t.directOther)],
+    ['Meta reports', money2(t.metaReportedPurchaseValue)],
+  ].map(([k, v]) => `${esc(k)} <b>${esc(v)}</b>`).join('');
+
+  renderBgRows();
+}
+
+function renderBgRows() {
+  const d = bgState.data;
+  if (!d) return;
+
+  const rows = d.campaigns.filter((c) => bgState.scope === 'all' || c.platform === bgState.scope);
+  const key = bgState.sort;
+  rows.sort((a, b) => {
+    const av = a[key] ?? (typeof b[key] === 'string' ? '' : -Infinity);
+    const bv = b[key] ?? (typeof a[key] === 'string' ? '' : -Infinity);
+    if (av < bv) return -1 * bgState.dir;
+    if (av > bv) return 1 * bgState.dir;
+    return 0;
+  });
+
+  $$('#bg-table thead th').forEach((th) => {
+    const a = th.querySelector('.arr');
+    if (a) a.textContent = th.dataset.sort === key ? (bgState.dir < 0 ? ' ▾' : ' ▴') : '';
+  });
+
+  $$('#bg-tiles .tile').forEach((t) =>
+    t.setAttribute('aria-selected', String(t.dataset.bg === bgState.scope)));
+
+  if (!rows.length) {
+    $('#bg-body').innerHTML = '';
+    showBgEmpty(bgState.scope === 'all'
+      ? 'No paid-media touchpoints in this window. Every recorded sale came from organic traffic, email or direct.'
+      : `No ${BG_PLATFORM[bgState.scope]} campaigns in this window.`);
+    return;
+  }
+  $('#bg-empty').hidden = true;
+
+  $('#bg-body').innerHTML = rows.map((c) => {
+    const chips = [`<span class="chip ${esc(c.platform)}">${esc(BG_PLATFORM[c.platform] || c.platform)}</span>`];
+    if (c.confidence === 'low') chips.push('<span class="chip warn">low confidence</span>');
+    const id = c.campaignId ? `<span class="sub">ID ${esc(c.campaignId)}</span>` : '';
+    /* A sole visit is neither a first nor a last touch — it is both, and
+     * listing it under either column would make that column disagree with
+     * its own count. It sits under the total it is actually part of. */
+    const onlyLine = c.onlyTouches
+      ? `<span class="bg-sub">incl. ${int(c.onlyTouches)} sole visit${c.onlyTouches === 1 ? '' : 's'} · ${money2(c.onlyTouchSales)}</span>` : '';
+
+    return `<tr class="bg-row" data-key="${esc(c.key)}" tabindex="0">
+      <td class="bg-camp">${esc(c.campaign)} ${chips.join(' ')}${id}</td>
+      <td class="num">${int(c.orders)}</td>
+      <td class="num">${money2(c.firstTouchSales)}<span class="bg-sub">${int(c.firstTouches)} touch</span></td>
+      <td class="num">${money2(c.lastTouchSales)}<span class="bg-sub">${int(c.lastTouches)} touch</span></td>
+      <td class="num"><b>${money2(c.attributedSales)}</b><span class="bg-sub">${(c.shareOfSales * 100).toFixed(1)}% of paid</span>${onlyLine}</td>
+      <td class="num">${c.spendKnown ? money(c.spend) : '—'}</td>
+      <td class="num">${c.roas == null ? '—' : `${c.roas.toFixed(2)}×`}</td>
+      <td class="num"><b>${money(c.recommendedWeekly)}</b><span class="bg-sub">${esc(BG_BASIS[c.recommendBasis] || '')}</span></td>
+    </tr>`;
+  }).join('');
+
+  if (bgState.openKey) openBgOrders(bgState.openKey, true);
+}
+
+/** The orders behind one campaign, and how each sale was divided. */
+function openBgOrders(key, keepOpen = false) {
+  const row = $(`#bg-body tr.bg-row[data-key="${CSS.escape(key)}"]`);
+  const already = $('#bg-detail');
+  if (already) already.remove();
+  $$('#bg-table tbody tr.bg-row.open').forEach((r) => r.classList.remove('open'));
+
+  if (!row) { bgState.openKey = null; return; }
+  if (bgState.openKey === key && !keepOpen) { bgState.openKey = null; return; }
+
+  const c = bgState.data.campaigns.find((x) => x.key === key);
+  if (!c) return;
+  bgState.openKey = key;
+  row.classList.add('open');
+
+  const body = c.orderList.length
+    ? c.orderList.map((o) => `<tr>
+        <td>${o.adminUrl
+          ? `<a href="${esc(o.adminUrl)}" target="_blank" rel="noreferrer">${esc(o.orderNumber || '—')}</a>`
+          : esc(o.orderNumber || '—')}</td>
+        <td>${esc(fmtDay(o.day))}</td>
+        <td>${esc(o.touch === 'only' ? 'sole visit' : `${o.touch} click`)}<span class="bg-sub">${esc(o.reason)}</span></td>
+        <td class="num">${money2(o.orderTotal)}</td>
+        <td class="num">${(o.share * 100).toFixed(0)}%</td>
+        <td class="num"><b>${money2(o.credited)}</b></td>
+      </tr>`).join('')
+    : `<tr><td colspan="6">No recorded orders — this campaign spent without one.</td></tr>`;
+
+  const detail = document.createElement('tr');
+  detail.id = 'bg-detail';
+  detail.className = 'bg-detail';
+  detail.innerHTML = `<td colspan="${$$('#bg-table thead th').length}"><div class="bg-orders">
+    <h4>${esc(c.campaign)} — the orders behind it</h4>
+    <p class="hint">An order with two different touchpoints gives half its value to each.
+      A sole visit keeps all of it.</p>
+    <table><thead><tr>
+      <th>Order</th><th>Date</th><th>Which visit</th>
+      <th class="num">Order total</th><th class="num">Share</th><th class="num">Credited</th>
+    </tr></thead><tbody>${body}</tbody></table>
+  </div></td>`;
+  row.after(detail);
+
+  const scroller = $('#bg-card .tbl-scroll');
+  if (scroller) detail.querySelector('.bg-orders').style.width = `${scroller.clientWidth}px`;
+}
+
 const stState = { open: false, days: 30, sort: 'capitalOnHand', dir: -1, data: null, loading: false };
 
 const pct = (v, dp = 1) => (v == null ? '—' : `${(v * 100).toFixed(dp)}%`);
@@ -2755,6 +3156,54 @@ $$('#ch-metric button').forEach((btn) => btn.addEventListener('click', () => {
 }));
 
 /* ---- sell-through by brand ---- */
+/* ---- the budget report ----
+ * Every handler here is scoped inside #bg-card or #bg-tiles. The hero bucket
+ * tiles are bound with $$('#tiles .tile[data-bucket]'), so a click on
+ * "Meta · recommended weekly" cannot reach that handler and silently repoint
+ * the drill-down table at a different bucket. */
+$('#bg-open').addEventListener('click', () => {
+  bgState.open = !bgState.open;
+  $('#bg-open').setAttribute('aria-expanded', String(bgState.open));
+  $('#bg-card').hidden = !bgState.open;
+  if (bgState.open) {
+    // Always re-read. A budget that is quietly hours old is worse than a wait.
+    loadBudget();
+    $('#bg-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+});
+$('#bg-close').addEventListener('click', () => {
+  bgState.open = false;
+  $('#bg-open').setAttribute('aria-expanded', 'false');
+  $('#bg-card').hidden = true;
+});
+$('#bg-refresh').addEventListener('click', () => loadBudget());
+
+$$('#bg-tiles .tile').forEach((t) => t.addEventListener('click', () => {
+  bgState.scope = t.dataset.bg;
+  bgState.openKey = null;
+  renderBgRows();
+}));
+
+$$('#bg-table thead th[data-sort]').forEach((th) => th.addEventListener('click', () => {
+  const k = th.dataset.sort;
+  if (bgState.sort === k) bgState.dir *= -1;
+  else { bgState.sort = k; bgState.dir = k === 'campaign' ? 1 : -1; }
+  bgState.openKey = null;
+  renderBgRows();
+}));
+
+$('#bg-body').addEventListener('click', (e) => {
+  const row = e.target.closest('tr.bg-row');
+  if (row && !e.target.closest('a')) openBgOrders(row.dataset.key);
+});
+$('#bg-body').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const row = e.target.closest('tr.bg-row');
+  if (!row) return;
+  e.preventDefault();
+  openBgOrders(row.dataset.key);
+});
+
 $('#st-open').addEventListener('click', () => {
   stState.open = !stState.open;
   $('#st-open').setAttribute('aria-expanded', String(stState.open));
