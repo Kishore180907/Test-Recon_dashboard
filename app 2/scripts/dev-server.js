@@ -45,6 +45,7 @@ const handlers = {
   '/api/sync-now': (await import('../netlify/functions/sync-now.mjs')).default,
   '/api/backfill': (await import('../netlify/functions/backfill-background.mjs')).default,
   '/api/report': (await import('../netlify/functions/report.mjs')).default,
+  '/api/budget': (await import('../netlify/functions/budget.mjs')).default,
 };
 
 /* Routes with a path parameter, which the exact-match table above cannot hold.

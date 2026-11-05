@@ -1842,6 +1842,230 @@ check('cookies parse out of a multi-cookie header',
   check('a valid session still gets the dashboard', withCookie.status === 299);
 }
 
+/* ---- the budget report ----------------------------------------------------
+ * Two halves, and the second is the one that matters. The first checks that a
+ * touchpoint is read correctly; the second checks that no money goes missing
+ * or gets counted twice on the way from an order to a recommendation.
+ * -------------------------------------------------------------------------- */
+{
+  const B = await import('../lib/budget.js');
+
+  const V = (o) => ({
+    occurredAt: '2026-08-12T00:00:00Z', landingPage: null, referrerUrl: null,
+    source: null, sourceType: null, sourceDescription: null,
+    utmSource: null, utmMedium: null, utmCampaign: null, ...o,
+  });
+
+  // --- what counts as paid --------------------------------------------------
+  /* The single most expensive mistake this file could make: a free click
+   * mistaken for a bought one, which has the store paying for traffic it
+   * already has. A plain google.com referral is reported and never budgeted. */
+  check('an organic Google referral is not paid media', (() => {
+    const c = B.classifyTouch(V({ referrerUrl: 'https://www.google.com/', source: 'Google' }));
+    return c.platform === 'google' && c.paid === false;
+  })());
+  check('an organic Instagram referral is not paid media', (() => {
+    const c = B.classifyTouch(V({ referrerUrl: 'https://instagram.com/', source: 'Instagram' }));
+    return c.platform === 'meta' && c.paid === false;
+  })());
+
+  /* A click id is appended by the platform itself, so it is right even when
+   * the tracking template is broken — which this store's Google template
+   * currently is, shipping an unreplaced {campaignname} merge tag. */
+  check('a gclid is paid Google, and carries its campaign id', (() => {
+    const v = V({ landingPage: 'https://www.clb23.com/p?gclid=abc123&gad_campaignid=22334455' });
+    const c = B.classifyTouch(v);
+    const camp = B.campaignOf(v, c, new Map());
+    return c.platform === 'google' && c.paid === true && camp.id === '22334455';
+  })());
+  check('a bare fbclid is paid Meta', (() => {
+    const c = B.classifyTouch(V({ landingPage: 'https://www.clb23.com/x?fbclid=zz' }));
+    return c.platform === 'meta' && c.paid === true;
+  })());
+
+  check('facebook / paid_social is paid Meta', (() => {
+    const c = B.classifyTouch(V({ utmSource: 'facebook', utmMedium: 'paid_social' }));
+    return c.platform === 'meta' && c.paid === true;
+  })());
+  check('google / cpc is paid Google', (() => {
+    const c = B.classifyTouch(V({ utmSource: 'google', utmMedium: 'cpc' }));
+    return c.platform === 'google' && c.paid === true;
+  })());
+
+  /* Email is the case that proves the rule: it converts, it belongs in the
+   * totals, and no part of a Meta or Google budget should move because of it. */
+  check('email earns nothing in a budget', (() => {
+    const c = B.classifyTouch(V({ utmSource: 'klaviyo', utmMedium: 'email', utmCampaign: 'Aug drop' }));
+    return c.platform === null && c.paid === false;
+  })());
+  check('utm_source=google with an email medium is still organic', (() => {
+    const c = B.classifyTouch(V({ utmSource: 'google', utmMedium: 'email', utmCampaign: 'news' }));
+    return c.platform === 'google' && c.paid === false;
+  })());
+  /* "leads" contains the letters of "ads". Matching the medium as a substring
+   * rather than as tokens would have started budgeting against a mailing list. */
+  check('a medium that merely contains a paid word is not paid',
+    !B.hasPaidMedium('leads') && !B.hasPaidMedium('newsletter'));
+  check('compound paid mediums are still paid',
+    B.hasPaidMedium('paid_social') && B.hasPaidMedium('paid-social') && B.hasPaidMedium('retargeting'));
+
+  // --- how an order divides -------------------------------------------------
+  const twoEnds = {
+    netPayment: 100,
+    firstVisit: V({ utmSource: 'facebook', utmMedium: 'paid_social', utmCampaign: 'A' }),
+    lastVisit: V({ occurredAt: '2026-08-14T00:00:00Z', source: 'direct' }),
+  };
+  check('two different touchpoints split the order 50/50', (() => {
+    const parts = B.splitAmounts(twoEnds);
+    return parts.length === 2 && parts[0].amount === 50 && parts[1].amount === 50;
+  })());
+  check('one visit on both ends takes the whole order', (() => {
+    const v = V({ utmSource: 'facebook', utmMedium: 'paid_social' });
+    const parts = B.splitAmounts({ netPayment: 100, firstVisit: v, lastVisit: { ...v } });
+    return parts.length === 1 && parts[0].which === 'only' && parts[0].amount === 100;
+  })());
+  check('an order with no journey divides into nothing to credit',
+    B.splitAmounts({ netPayment: 100, firstVisit: null, lastVisit: null }).length === 0);
+  /* An odd number of cents cannot halve evenly. The last portion takes the
+   * remainder so the two still add back to the order, because the check that
+   * says no money went missing is worth more than a symmetrical split. */
+  check('an odd-cent order still adds back to itself', (() => {
+    const parts = B.splitAmounts({ ...twoEnds, netPayment: 100.01 });
+    return parts[0].amount === 50.01 && parts[1].amount === 50
+      && near(parts[0].amount + parts[1].amount, 100.01);
+  })());
+
+  // --- the recommendation ---------------------------------------------------
+  check('with no current spend the target stands on its own', (() => {
+    const r = B.recommend({ sales: 4000, spend: null, orders: 10, targetRoas: 4 });
+    return r.weekly === 1000 && r.basis === 'target';
+  })());
+  /* A week is a small sample. The honest reaction to a good one is to lean in,
+   * not to triple a budget off seven days of orders. */
+  check('a rise is capped at +30% of what is being spent now', (() => {
+    const r = B.recommend({ sales: 40000, spend: 500, orders: 20, targetRoas: 4, maxChange: 0.3 });
+    return r.weekly === 650 && r.basis === 'capped-up';
+  })());
+  check('a fall is capped at −30% as well', (() => {
+    const r = B.recommend({ sales: 400, spend: 500, orders: 20, targetRoas: 4, maxChange: 0.3 });
+    return r.weekly === 350 && r.basis === 'capped-down';
+  })());
+  check('a target inside the cap is used as it is', (() => {
+    const r = B.recommend({ sales: 2200, spend: 500, orders: 20, targetRoas: 4, maxChange: 0.3 });
+    return r.weekly === 550 && r.basis === 'target';
+  })());
+  /* Switching a campaign off is a decision for a person. Spend with nothing to
+   * show for it steps down; it never lands on zero by arithmetic. */
+  check('spend with no sales steps down rather than to zero', (() => {
+    const r = B.recommend({ sales: 0, spend: 500, orders: 0, targetRoas: 4, maxChange: 0.3 });
+    return r.weekly === 350 && r.basis === 'step-down' && r.weekly > 0;
+  })());
+  /* ±30% of zero is zero, which would recommend never spending again on a
+   * campaign that is merely paused — including one that is paused and still
+   * selling, which is the row most worth seeing. */
+  check('a paused campaign is not held at zero for ever', (() => {
+    const r = B.recommend({ sales: 800, spend: 0, orders: 5, targetRoas: 4 });
+    return r.weekly === 200 && r.basis === 'target';
+  })());
+  check('under three orders the row says low confidence',
+    B.recommend({ sales: 900, spend: 200, orders: 2 }).confidence === 'low'
+    && B.recommend({ sales: 900, spend: 200, orders: 3 }).confidence === 'ok');
+
+  check('the forecast is just the weekly figure spread over the days', (() => {
+    const f = B.forecast(700);
+    return f[7] === 700 && f[14] === 1400 && f[30] === 3000;
+  })());
+
+  // --- on the fixtures ------------------------------------------------------
+  const { fetchCampaignInsights: fetchMeta } = await import('../lib/meta.js');
+  const allInsights = await fetchMeta({ since: '2026-06-01', until: '2026-08-17' });
+  const win = { start: '2026-08-11', end: '2026-08-17', days: 7 };
+  const report = B.buildBudgetReport({
+    orders: page.orders.filter((o) => !isPOS(o)),
+    metaInsights: allInsights,
+    window: win,
+    metaConnected: false,
+    settings: B.budgetSettings({}),
+  });
+  const bt = report.totals;
+
+  /* The one assertion that says no money went missing. Paid, organic Google,
+   * organic Meta and direct/other partition the recorded total — every dollar
+   * of every order lands in exactly one of them. */
+  check('paid plus unpaid equals every dollar recorded',
+    near(bt.paidMediaSales + bt.organicGoogle + bt.organicMeta + bt.directOther, bt.recordedSales),
+    `${(bt.paidMediaSales + bt.organicGoogle + bt.organicMeta + bt.directOther).toFixed(2)} vs ${bt.recordedSales.toFixed(2)}`);
+
+  check('the campaign rows sum to the paid-media total',
+    near(report.campaigns.reduce((s, c) => s + c.attributedSales, 0), bt.paidMediaSales),
+    `${bt.paidMediaSales.toFixed(2)}`);
+
+  check('the two platform blocks sum to the paid-media total',
+    near(report.platforms.meta.attributedSales + report.platforms.google.attributedSales,
+      bt.paidMediaSales));
+
+  check('the fixture week has paid media to report on', bt.paidMediaSales > 0,
+    `$${bt.paidMediaSales.toFixed(2)} of $${bt.recordedSales.toFixed(2)}`);
+  check('organic Google is reported but kept out of paid media',
+    bt.organicGoogle > 0 && bt.organicGoogle < bt.recordedSales,
+    `$${bt.organicGoogle.toFixed(2)}`);
+
+  /* The join that makes the spend side meet the sales side. The campaign
+   * reaches the storefront as a utm_campaign string and Meta reports it under
+   * an id; campaignKey() is what makes the two agree. */
+  check('CLB_Broad_Catalog_AJ_07/31 joins to its Meta campaign id', (() => {
+    const row = report.campaigns.find((c) => /AJ_07\/31/.test(c.campaign));
+    return row && row.campaignId === '120248465254210707' && row.attributedSales > 0 && row.spend > 0;
+  })(), report.campaigns.find((c) => /AJ_07\/31/.test(c.campaign))?.campaignId);
+
+  /* A campaign that took money and returned nothing exists only on the spend
+   * side — no order points at it, so nothing in the order loop would create
+   * its row. It is also the most useful row on the page. */
+  check('a campaign that spent without selling still gets a row', (() => {
+    const row = report.campaigns.find((c) => /500_07\/24/.test(c.campaign));
+    return row && row.spend > 0 && row.attributedSales === 0 && row.recommendBasis === 'step-down';
+  })());
+
+  check('every campaign row names a platform the report can budget',
+    report.campaigns.every((c) => c.platform === 'meta' || c.platform === 'google'));
+  check('no campaign is credited more than the paid total',
+    report.campaigns.every((c) => c.attributedSales <= bt.paidMediaSales + 0.005));
+
+  /* The order list behind a campaign has to account for exactly the money the
+   * row claims, or the expansion contradicts the row above it. */
+  check('each campaign’s order list adds up to its attributed sales',
+    report.campaigns.every((c) =>
+      near(c.orderList.reduce((s, o) => s + o.credited, 0), c.attributedSales)));
+
+  check('the window is seven complete days', (() => {
+    const w = B.budgetWindow('2026-08-17');
+    return w.start === '2026-08-11' && w.end === '2026-08-17' && w.days === 7;
+  })());
+
+  /* Google has no connector, so its spend is unknown unless someone types it
+   * in. Unknown must not read as zero — zero would make every recommendation
+   * a capped move away from nothing. */
+  check('Google spend is unknown until the env var is set',
+    report.platforms.google.spendKnown === false
+    && report.platforms.google.currentWeeklySpend === null);
+  check('setting GOOGLE_ADS_WEEKLY_SPEND makes it known', (() => {
+    const r = B.buildBudgetReport({
+      orders: page.orders.filter((o) => !isPOS(o)),
+      metaInsights: allInsights, window: win, metaConnected: false,
+      settings: B.budgetSettings({ GOOGLE_ADS_WEEKLY_SPEND: '250' }),
+    });
+    return r.platforms.google.spendKnown === true && r.platforms.google.currentWeeklySpend === 250;
+  })());
+
+  /* The estimate tile has to say which half of itself is measured and which is
+   * a suggestion — "the next 30 days will cost $X" means something different
+   * when half of X is a guess. */
+  check('the estimate says where each half of it came from',
+    report.estimate.basis === 'mixed'
+    && report.estimate.knownPlatforms.join() === 'meta'
+    && report.estimate.forecast[30] > report.estimate.forecast[7]);
+}
+
 /* ---- GraphQL documents ----------------------------------------------------
  * Every query in lib/ is a JS template literal, so a JS comment inside one
  * looks fine to Node, to esbuild and to every mocked test — and then Shopify
