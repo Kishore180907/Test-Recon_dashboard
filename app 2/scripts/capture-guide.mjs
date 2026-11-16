@@ -30,6 +30,7 @@ const b = await chromium.launch({
 });
 const p = await b.newPage({ viewport: { width: 1700, height: 1200 }, deviceScaleFactor: 2 });
 await p.goto('http://127.0.0.1:8787/', { waitUntil: 'networkidle' });
+await p.evaluate(() => { document.querySelector('#ctl-fold').open = true; });
 await p.fill('#start', '2026-08-11');
 await p.fill('#end', '2026-08-17');
 await p.click('#apply');
