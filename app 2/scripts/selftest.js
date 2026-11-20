@@ -2066,6 +2066,138 @@ check('cookies parse out of a multi-cookie header',
     && report.estimate.forecast[30] > report.estimate.forecast[7]);
 }
 
+/* ---- order notes ----------------------------------------------------------
+ * The feature's one promise is that what people write here stays here. Most
+ * of what follows is that promise, checked from several directions.
+ * -------------------------------------------------------------------------- */
+{
+  const N = await import('../lib/notes.js');
+
+  const gid = 'gid://shopify/Order/6227812352089';
+
+  // --- the key, which is the only place an outside string reaches storage ---
+  check('an order id reduces to its numeric tail', N.orderKey(gid) === '6227812352089');
+  check('a bare numeric id is accepted', N.orderKey('123') === '123');
+  /* This value arrives on a query string. Anything that is not digits must be
+   * refused BEFORE a blob key is built from it, not sanitised afterwards. */
+  check('nothing but digits can become a storage key',
+    ['', null, undefined, 'n/../meta/watermark', 'gid://shopify/Order/../x', '12 34', '12a',
+     'gid://shopify/Order/', '1'.repeat(33)].every((v) => N.orderKey(v) === null));
+  check('an image id must be a uuid',
+    !N.validImageId('../x') && !N.validImageId('') && !N.validImageId('x'.repeat(36))
+    && N.validImageId('0191f2a4-3b5c-4d6e-8f90-1a2b3c4d5e6f'));
+
+  // --- writing, reading, deleting ------------------------------------------
+  check('an order with nothing written about it reads as empty',
+    (await N.readNotes(gid)).notes.length === 0);
+
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const img = await N.putImage({ contentType: 'image/png', data: png, width: 1, height: 1 });
+  check('an image stores and comes back with its id', N.validImageId(img.id));
+  const back = await N.readImage(img.id);
+  check('an image round-trips byte for byte',
+    back.data === png && back.contentType === 'image/png');
+  check('an unknown image id reads as nothing', (await N.readImage('0191f2a4-3b5c-4d6e-8f90-ffffffffffff')) === null);
+  check('a malformed image id never reaches storage', (await N.readImage('../../meta/watermark')) === null);
+
+  const rec = await N.addNote(gid, {
+    orderNumber: '#28512', text: 'Customer rang about sizing. Screenshot of the chat attached.',
+    author: 'Kishore', images: [img],
+  });
+  check('a note saves against its order', rec.notes.length === 1 && rec.orderNumber === '#28512');
+  check('a note keeps its author and its image',
+    rec.notes[0].author === 'Kishore' && rec.notes[0].images[0].id === img.id);
+  check('a saved note reads back', (await N.readNotes(gid)).notes.length === 1);
+
+  /* A mis-click should not leave a row of blank notes behind. */
+  check('a note with neither words nor a picture is refused', await (async () => {
+    try { await N.addNote(gid, { text: '   ' }); return false; }
+    catch (err) { return err.status === 400; }
+  })());
+  check('a note on a nonsense order id is refused', await (async () => {
+    try { await N.addNote('not-an-order', { text: 'hello' }); return false; }
+    catch (err) { return err.status === 400; }
+  })());
+
+  const long = await N.addNote(gid, { text: 'x'.repeat(9000) });
+  check('an over-long note is trimmed to the cap',
+    long.notes[1].text.length === N.MAX_TEXT);
+
+  const edited = await N.editNote(gid, rec.notes[0].id, { text: 'Rang about sizing — resolved.' });
+  check('a note can be rewritten', edited.notes[0].text === 'Rang about sizing — resolved.');
+  check('rewriting stamps it as edited', edited.notes[0].updatedAt !== edited.notes[0].createdAt);
+  check('editing a note that is not there says so',
+    (await N.editNote(gid, '0191f2a4-3b5c-4d6e-8f90-ffffffffffff', { text: 'x' })) === null);
+
+  /* An image nobody can reach from anywhere is a thing that sits in storage
+   * for ever, because nobody will ever come back to clean it up. */
+  check('deleting a note takes its screenshots with it', await (async () => {
+    await N.deleteNote(gid, edited.notes[0].id);
+    return (await N.readImage(img.id)) === null;
+  })());
+  check('the other notes on the order survive', (await N.readNotes(gid)).notes.length === 1);
+
+  // --- the index the table badges from -------------------------------------
+  const idx = await N.notesIndex();
+  check('the index names every order that has a note', Boolean(idx[gid]));
+  check('the index carries a count and a preview, not the notes',
+    idx[gid].count === 1 && typeof idx[gid].preview === 'string'
+    && idx[gid].preview.length <= 160 && !('notes' in idx[gid]));
+
+  check('removing the last note drops the order from the index', await (async () => {
+    const left = (await N.readNotes(gid)).notes[0];
+    await N.deleteNote(gid, left.id);
+    return !(await N.notesIndex())[gid];
+  })());
+
+  /* ---- THE PROMISE -------------------------------------------------------
+   * "Only people with the dashboard password see these. They are never
+   * included in a shared report." That sentence is printed above the box
+   * people type into, so it had better be true. Checked three ways. */
+  {
+    const noteOnOrder = page.orders.find((o) => !isPOS(o) && o.netPayment > 0);
+    await N.addNote(noteOnOrder.id, {
+      orderNumber: noteOnOrder.orderNumber,
+      text: 'SECRET-INTERNAL-REMARK-DO-NOT-SHARE',
+      author: 'staff',
+    });
+
+    const rep = await import('../lib/report.js');
+    const snap = await rep.buildSnapshot({
+      start: '2026-08-11', end: '2026-08-17', bucket: 'online', names: true,
+    });
+    check('a report snapshot carries no note text',
+      !JSON.stringify(snap).includes('SECRET-INTERNAL-REMARK-DO-NOT-SHARE'));
+
+    const { renderReportPage } = await import('../lib/reportpage.js');
+    check('a rendered report page carries no note text',
+      !renderReportPage(snap, {}).includes('SECRET-INTERNAL-REMARK-DO-NOT-SHARE'));
+
+    /* The strongest form of the check: report.js cannot leak notes because it
+     * has no way to reach them. If somebody ever wires the two together, this
+     * fails before the leak ships. */
+    const fsSync = await import('node:fs');
+    const reportSrc = fsSync.readFileSync(new URL('../lib/report.js', import.meta.url), 'utf8');
+    const pageSrc = fsSync.readFileSync(new URL('../lib/reportpage.js', import.meta.url), 'utf8');
+    check('the report code cannot even read a note',
+      !/notes\.js/.test(reportSrc) && !/notes\.js/.test(pageSrc));
+
+    const dataSrc = fsSync.readFileSync(new URL('../lib/payload.js', import.meta.url), 'utf8');
+    check('notes are not in the dashboard payload either', !/notes\.js/.test(dataSrc));
+
+    await N.deleteNote(noteOnOrder.id, (await N.readNotes(noteOnOrder.id)).notes[0].id);
+  }
+
+  check('only image types a browser actually produces are accepted', await (async () => {
+    try { await N.putImage({ contentType: 'image/svg+xml', data: png }); return false; }
+    catch (err) { return err.status === 415; }
+  })());
+  check('an oversized image is refused', await (async () => {
+    try { await N.putImage({ contentType: 'image/png', data: png, bytes: N.MAX_IMAGE_BYTES + 1 }); return false; }
+    catch (err) { return err.status === 413; }
+  })());
+}
+
 /* ---- GraphQL documents ----------------------------------------------------
  * Every query in lib/ is a JS template literal, so a JS comment inside one
  * looks fine to Node, to esbuild and to every mocked test — and then Shopify

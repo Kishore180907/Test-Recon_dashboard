@@ -46,6 +46,8 @@ const handlers = {
   '/api/backfill': (await import('../netlify/functions/backfill-background.mjs')).default,
   '/api/report': (await import('../netlify/functions/report.mjs')).default,
   '/api/budget': (await import('../netlify/functions/budget.mjs')).default,
+  '/api/notes': (await import('../netlify/functions/notes.mjs')).default,
+  '/api/note-image': (await import('../netlify/functions/noteimage.mjs')).default,
 };
 
 /* Routes with a path parameter, which the exact-match table above cannot hold.
