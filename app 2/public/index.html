@@ -32,7 +32,7 @@
     --surface-2:     rgba(255,255,255,0.78);
     --surface-solid: #f3f8f4;
     --glass-edge:    rgba(255,255,255,0.75);
-    --glass-blur:    saturate(150%) blur(18px);
+    --glass-blur:    saturate(170%) blur(26px);
 
     --plane:      #e7f0e9;
     --plane-tint: #c9e0d1;
@@ -67,8 +67,8 @@
     --glow-b: rgba(143,173,180,0.13);
     --glow-c: rgba(198,154,128,0.09);
 
-    --shadow-soft: 0 1px 2px rgba(27,42,34,.04), 0 8px 24px rgba(27,42,34,.06);
-    --shadow-lift: 0 2px 6px rgba(27,42,34,.06), 0 18px 44px rgba(27,42,34,.10);
+    --shadow-soft: inset 0 1px 0 var(--glass-edge), 0 1px 2px rgba(27,42,34,.04), 0 8px 24px rgba(27,42,34,.06);
+    --shadow-lift: inset 0 1px 0 var(--glass-edge), 0 2px 6px rgba(27,42,34,.06), 0 18px 44px rgba(27,42,34,.10);
   }
 
   /* The dark counterpart keeps the same green cast and the same softness, so
@@ -87,10 +87,10 @@
   :root[data-theme="dark"] {
     color-scheme: dark;
 
-    --surface-1:     rgba(255,255,255,0.042);
-    --surface-2:     rgba(255,255,255,0.065);
+    --surface-1:     rgba(255,255,255,0.055);
+    --surface-2:     rgba(255,255,255,0.08);
     --surface-solid: #23282f;
-    --glass-edge:    rgba(255,255,255,0.085);
+    --glass-edge:    rgba(255,255,255,0.11);
 
     --plane:      #191c21;
     --plane-tint: #21262d;
@@ -120,12 +120,12 @@
     --cat-5: #d55181;  --cat-6: #008300;  --cat-7: #9085e9;  --cat-8: #e66767;
 
     /* The atmospheric pools that bleed through the glass. */
-    --glow-a: rgba(111,168,220,0.20);
-    --glow-b: rgba(98,179,164,0.16);
-    --glow-c: rgba(217,172,116,0.10);
+    --glow-a: rgba(111,168,220,0.30);
+    --glow-b: rgba(98,179,164,0.24);
+    --glow-c: rgba(217,172,116,0.16);
 
-    --shadow-soft: 0 1px 2px rgba(0,0,0,.30), 0 10px 28px rgba(0,0,0,.30);
-    --shadow-lift: 0 2px 8px rgba(0,0,0,.36), 0 22px 52px rgba(0,0,0,.46);
+    --shadow-soft: inset 0 1px 0 var(--glass-edge), 0 1px 2px rgba(0,0,0,.30), 0 10px 28px rgba(0,0,0,.30);
+    --shadow-lift: inset 0 1px 0 var(--glass-edge), 0 2px 8px rgba(0,0,0,.36), 0 22px 52px rgba(0,0,0,.46);
   }
 
   /* One rule every panel opts into, so the glass stays consistent and there is
@@ -170,9 +170,29 @@
   .wrap { max-width: 1440px; margin: 0 auto; padding: 20px 24px 64px; }
 
   /* ---------- header ---------- */
+  /* Sticky, so the search bar and the live state stay in reach on a long
+     table. More opaque than a panel: rows scroll underneath it, and they have
+     to blur into the bar rather than read through it. */
   header.top {
-    display: flex; align-items: flex-end; justify-content: space-between;
-    gap: 20px; flex-wrap: wrap; margin-bottom: 18px;
+    position: sticky; top: 10px; z-index: 40;
+    display: grid; align-items: center; gap: 16px;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 440px) minmax(0, 1fr);
+    padding: 10px 14px 10px 18px; margin-bottom: 16px; border-radius: 16px;
+    background: color-mix(in srgb, var(--plane) 68%, transparent);
+    border: 1px solid var(--border); border-top-color: var(--glass-edge);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-lift);
+  }
+  @media (max-width: 980px) {
+    header.top { grid-template-columns: minmax(0, 1fr) auto; }
+    .searchbar { grid-column: 1 / -1; grid-row: 2; }
+  }
+  /* A phone has no room to pin three rows of header over the numbers: it
+     stacks, and scrolls away with the page. */
+  @media (max-width: 640px) {
+    header.top { position: static; grid-template-columns: minmax(0, 1fr); padding: 12px 14px; }
+    .searchbar { grid-row: auto; }
+    .top-actions { justify-content: flex-start; flex-wrap: wrap; }
   }
   .brand h1 {
     font-size: 19px; font-weight: 640; margin: 0; letter-spacing: -0.01em;
@@ -187,7 +207,8 @@
     border: 1px solid color-mix(in srgb, var(--series-online) 28%, transparent);
     border-radius: 999px; padding: 3px 9px; white-space: nowrap;
   }
-  .brand p  { margin: 3px 0 0; font-size: 12.5px; color: var(--text-muted); }
+  .brand p  { margin: 2px 0 0; font-size: 12px; color: var(--text-muted);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .livedot {
     display: inline-flex; align-items: center; gap: 6px;
@@ -208,8 +229,8 @@
 
   /* ---------- controls ---------- */
   .controls {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    padding: 10px 12px; margin-bottom: 18px; border-radius: 12px;
+    display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap;
+    padding: 10px 14px; margin-bottom: 22px; border-radius: 14px;
     background: var(--surface-1);
     border: 1px solid var(--border); border-top-color: var(--glass-edge);
     -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
@@ -262,6 +283,8 @@
      inputs and a button are wider than a phone once the rest of the row has
      had its share. */
   .cmp-custom { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  /* display:inline-flex beats [hidden], so the empty pair showed with no comparison picked. */
+  .cmp-custom[hidden] { display: none; }
 
   /* Change against the compared window. Carried by an arrow and the word
      "vs <range>" in the title, never by colour alone. */
@@ -663,14 +686,6 @@
   @media (max-width: 640px) { .jdrawer { width: 100vw; } }
 
   /* ---------- "How to read this" guide ---------- */
-  .helpbtn {
-    vertical-align: 3px; margin-left: 8px;
-    background: transparent; border: 1px solid var(--border); border-radius: 999px;
-    color: var(--text-secondary); font: inherit; font-size: 11.5px; font-weight: 500;
-    padding: 3px 11px; cursor: pointer;
-  }
-  .helpbtn:hover { background: var(--wash); color: var(--text-primary); border-color: var(--text-muted); }
-
   .guide-scrim {
     position: fixed; inset: 0; z-index: 60; display: none;
     background: rgba(27,42,34,.30);
@@ -1016,6 +1031,99 @@
   .shlist li button:hover { color: var(--series-draft); border-color: var(--series-draft); }
 
   @media (max-width: 560px) { .shcard { margin-top: 2vh; padding: 18px 16px; } }
+
+  /* ---------- hierarchy: groups, search, folds ----------
+     The page reads top to bottom as four related groups — the three buckets and
+     their totals, the trend, the on-demand reports, the orders — each under a
+     quiet label. Anything consulted occasionally (custom dates, comparison,
+     reference totals, the method notes, housekeeping buttons) folds away in a
+     native <details>, so it costs no script and works from the keyboard. */
+  :focus-visible { outline: 2px solid var(--series-online); outline-offset: 2px; }
+
+  .group { margin-bottom: 26px; }
+  /* Clear of the sticky header when a card is scrolled into view. */
+  .group .card { scroll-margin-top: 92px; }
+  .group > .card:last-child, .group > .strip:last-child { margin-bottom: 0; }
+  /* A group whose every card is closed shows nothing, label included. */
+  .group:not(:has(> :not(.eyebrow):not([hidden]))) { display: none; }
+  .eyebrow {
+    margin: 0 0 9px 4px; font-size: 11px; font-weight: 600;
+    letter-spacing: .09em; text-transform: uppercase; color: var(--text-muted);
+  }
+  .group .tiles { margin-bottom: 10px; }
+
+  .ctl-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ctl-cap {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .ctl-label { margin-left: 0; }
+  .btn[aria-expanded="true"] { background: var(--wash); color: var(--text-primary); font-weight: 600; }
+
+  .searchbar {
+    display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 12px;
+    border-radius: 999px; color: var(--text-muted); cursor: text;
+    background: var(--surface-2); border: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 var(--glass-edge);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .searchbar:focus-within {
+    border-color: color-mix(in srgb, var(--series-online) 60%, var(--border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--series-online) 20%, transparent);
+  }
+  .searchbar svg { flex: none; }
+  .searchbar input {
+    flex: 1 1 auto; min-width: 0; border: 0; padding: 0; outline: 0; font-size: 13.5px;
+  }
+  .search-hint { font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .searchbar kbd {
+    font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px;
+  }
+  .searchbar:focus-within kbd { display: none; }
+
+  .top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .top-actions .btn { white-space: nowrap; }
+  .top-actions .livedot { margin-right: 4px; white-space: nowrap; }
+  @media (max-width: 560px) { .top-actions .livedot span { display: none; } }
+
+  .more { position: relative; }
+  .more > summary { list-style: none; }
+  .more > summary::-webkit-details-marker { display: none; }
+  .more-menu {
+    position: absolute; right: 0; top: calc(100% + 8px); min-width: 180px; padding: 5px;
+    display: grid; border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-solid) 96%, transparent);
+    border: 1px solid var(--border); box-shadow: var(--shadow-lift);
+  }
+  .more-menu button {
+    all: unset; box-sizing: border-box; cursor: pointer; border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; color: var(--text-primary);
+  }
+  .more-menu button:hover { background: var(--wash); }
+  .more-menu button:focus-visible { outline: 2px solid var(--series-online); outline-offset: -2px; }
+
+  .fold > summary {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+    list-style: none; font-size: 12px; color: var(--text-muted); border-radius: 6px;
+  }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold > summary::before {
+    content: "›"; font-size: 14px; line-height: 1; transition: transform .15s;
+  }
+  .fold[open] > summary::before { transform: rotate(90deg); }
+  .fold > summary:hover { color: var(--text-primary); }
+  .fold[open] > summary { margin-bottom: 9px; }
+  .fold.note { margin: 2px 0 12px; }
+  .fold.note > p { margin-bottom: 0; }
+
+  .ctl-fold { flex: 1 0 100%; padding-top: 9px; border-top: 1px solid var(--grid); }
+  .fold-body { display: flex; align-items: center; gap: 10px 22px; flex-wrap: wrap; }
+
+  .strip .fold { margin-left: auto; }
+  .strip .fold[open] { flex: 1 0 100%; }
+  .strip .fold[open] > summary { margin-bottom: 0; }
+  .strip .fold > span { margin-left: 22px; }
 </style>
 </head>
 <body>
@@ -1023,62 +1131,97 @@
 
   <header class="top">
     <div class="brand">
-      <h1>Multi Attribution <span class="sot">Source of Truth</span> <button class="helpbtn" id="help" aria-haspopup="dialog">How to read this</button></h1>
+      <h1>Multi Attribution <span class="sot">Source of Truth</span></h1>
       <p id="sub">CLB XXIII · loading…</p>
     </div>
-    <div class="livedot" id="live"><i></i><span id="livetext">connecting…</span></div>
+
+    <!-- The one search on the page. It filters the order table for the selected
+         bucket, says how many matches sit in the other two, and filters the
+         brand list as well while Sell-through is open. -->
+    <label class="searchbar">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="search" id="search" placeholder="Search orders, customers, sources…" aria-label="Search orders" />
+      <span class="search-hint" id="search-hint" aria-live="polite"></span>
+      <kbd aria-hidden="true">/</kbd>
+    </label>
+
+    <div class="top-actions">
+      <div class="livedot" id="live"><i></i><span id="livetext">connecting…</span></div>
+      <button class="btn" id="refresh" title="Pull anything new from Shopify right now, instead of waiting for the next scheduled sync">Refresh now</button>
+      <!-- Right-clicking a tile does the same thing with that tile pre-selected.
+           This button exists because a right-click is not discoverable and does
+           not exist at all on a phone. -->
+      <button class="btn primary" id="share-open"
+              title="Freeze what is on screen and send it as a link — the stakeholder sees these exact numbers">Share finding</button>
+      <details class="more" id="more">
+        <summary class="btn" aria-label="More actions">More</summary>
+        <div class="more-menu">
+          <button id="help" aria-haspopup="dialog">How to read this</button>
+          <button id="pause">Pause</button>
+          <button id="theme">Light</button>
+        </div>
+      </details>
+    </div>
   </header>
 
   <div class="banner" id="banner"></div>
 
   <div class="controls">
-    <div class="seg" id="presets">
-      <button data-preset="today">Today</button>
-      <button data-preset="7" aria-pressed="true">7 days</button>
-      <button data-preset="30">30 days</button>
-      <button data-preset="90">90 days</button>
+    <div class="ctl-group">
+      <span class="ctl-cap">Range</span>
+      <div class="seg" id="presets">
+        <button data-preset="today">Today</button>
+        <button data-preset="7" aria-pressed="true">7 days</button>
+        <button data-preset="30">30 days</button>
+        <button data-preset="90">90 days</button>
+      </div>
+      <!-- Period to date. A select rather than four more buttons: this is the
+           one control where the options are a set you pick from rather than a
+           row you scan. -->
+      <select id="period" aria-label="Period to date" title="Period to date">
+        <option value="">Period to date…</option>
+      </select>
     </div>
-
-    <!-- Period to date. A select rather than four more buttons: the bar is
-         already wide, and this is the one control where the options are a set
-         you pick from rather than a row you scan. -->
-    <select id="period" aria-label="Period to date" title="Period to date">
-      <option value="">Period to date…</option>
-    </select>
-
-    <span class="ctl-label">From</span>
-    <input type="date" id="start" />
-    <span class="ctl-label">to</span>
-    <input type="date" id="end" />
-    <button class="btn" id="apply">Apply</button>
-
-    <!-- Comparison. Changing it re-reads the compared window only; the range
-         on screen is already loaded and is not fetched again. -->
-    <select id="compare" aria-label="Compare to" title="Compare this range against another"></select>
-    <span class="cmp-custom" id="cmp-custom" hidden>
-      <span class="ctl-label">vs</span>
-      <input type="date" id="cmp-start" aria-label="Comparison start" />
-      <span class="ctl-label">to</span>
-      <input type="date" id="cmp-end" aria-label="Comparison end" />
-      <button class="btn" id="cmp-apply">Apply</button>
-    </span>
 
     <div class="spacer"></div>
 
-    <button class="btn" id="bg-open" aria-expanded="false" aria-controls="bg-card"
-            title="What to spend next week on Meta and Google, from the orders this store actually recorded">Budget</button>
-    <button class="btn" id="st-open" aria-expanded="false" aria-controls="st-card"
-            title="Sell-through rate by brand, with days of stock left and capital on hand">Sell-through</button>
-    <!-- Right-clicking a tile does the same thing with that tile pre-selected.
-         This button exists because a right-click is not discoverable and does
-         not exist at all on a phone. -->
-    <button class="btn" id="share-open"
-            title="Freeze what is on screen and send it as a link — the stakeholder sees these exact numbers">Share finding</button>
-    <button class="btn" id="pause">Pause</button>
-    <button class="btn" id="refresh" title="Pull anything new from Shopify right now, instead of waiting for the next scheduled sync">Refresh now</button>
-    <button class="btn" id="theme">Light</button>
+    <div class="ctl-group">
+      <span class="ctl-cap">Reports</span>
+      <button class="btn" id="bg-open" aria-expanded="false" aria-controls="bg-card"
+              title="What to spend next week on Meta and Google, from the orders this store actually recorded">Budget</button>
+      <button class="btn" id="st-open" aria-expanded="false" aria-controls="st-card"
+              title="Sell-through rate by brand, with days of stock left and capital on hand">Sell-through</button>
+    </div>
+
+    <details class="fold ctl-fold" id="ctl-fold">
+      <summary>Custom dates &amp; comparison</summary>
+      <div class="fold-body">
+        <div class="ctl-group">
+          <span class="ctl-label">From</span>
+          <input type="date" id="start" />
+          <span class="ctl-label">to</span>
+          <input type="date" id="end" />
+          <button class="btn" id="apply">Apply</button>
+        </div>
+        <!-- Comparison. Changing it re-reads the compared window only; the range
+             on screen is already loaded and is not fetched again. -->
+        <div class="ctl-group">
+          <span class="ctl-label">Compare</span>
+          <select id="compare" aria-label="Compare to" title="Compare this range against another"></select>
+          <span class="cmp-custom" id="cmp-custom" hidden>
+            <span class="ctl-label">vs</span>
+            <input type="date" id="cmp-start" aria-label="Comparison start" />
+            <span class="ctl-label">to</span>
+            <input type="date" id="cmp-end" aria-label="Comparison end" />
+            <button class="btn" id="cmp-apply">Apply</button>
+          </span>
+        </div>
+      </div>
+    </details>
   </div>
 
+  <section class="group">
+  <h2 class="eyebrow">Revenue by bucket</h2>
   <div class="tiles" id="tiles">
     <button class="tile online" data-bucket="online" data-finding="Ecommerce orders" aria-selected="true">
       <div class="tile-head"><span class="swatch"></span><span class="tile-name">ECOMMERCE ORDERS</span>
@@ -1114,10 +1257,17 @@
   <div class="strip" data-finding="Revenue totals">
     <span>Non-POS revenue <b id="t-nonpos">—</b><span class="delta" id="d-nonpos" hidden></span></span>
     <span>Non-POS orders <b id="t-nonposn">—</b><span class="delta" id="d-nonposn" hidden></span></span>
-    <span id="pos-strip" title="In-store sales, kept out of the three tiles.">POS revenue (excluded) <b id="t-pos">—</b></span>
-    <span>All channels <b id="t-all">—</b></span>
-    <span>Orders in view <b id="t-cached">—</b></span>
+    <details class="fold">
+      <summary>Reference totals</summary>
+      <span id="pos-strip" title="In-store sales, kept out of the three tiles.">POS revenue (excluded) <b id="t-pos">—</b></span>
+      <span>All channels <b id="t-all">—</b></span>
+      <span>Orders in view <b id="t-cached">—</b></span>
+    </details>
   </div>
+  </section>
+
+  <section class="group">
+  <h2 class="eyebrow">Trend</h2>
 
   <div class="card" data-finding="Daily revenue by bucket">
     <div class="card-head">
@@ -1136,6 +1286,32 @@
     <svg id="chart" role="img" aria-label="Daily revenue by bucket"></svg>
   </div>
 
+  <!-- Opened from the Ecommerce legend entry above. One line per sales channel,
+       so you can see which channel the Ecommerce number is actually flowing
+       through, either as order count or as revenue. -->
+  <div class="card" id="ch-card" hidden>
+    <div class="card-head">
+      <div>
+        <div class="card-title">Ecommerce by channel</div>
+        <div class="card-sub" id="ch-sub"></div>
+      </div>
+      <div class="head-tools">
+        <div class="seg" id="ch-metric" role="group" aria-label="Measure">
+          <button type="button" data-metric="orders"  aria-pressed="true">Orders</button>
+          <button type="button" data-metric="revenue" aria-pressed="false">Revenue</button>
+        </div>
+        <button class="btn" id="ch-close" title="Hide this breakdown">Close</button>
+      </div>
+    </div>
+    <div class="legend legend-wrap" id="ch-legend"></div>
+    <svg id="ch-chart" role="img" aria-label="Ecommerce orders by sales channel over time"></svg>
+    <p class="ch-empty" id="ch-empty" hidden></p>
+  </div>
+
+  </section>
+
+  <section class="group">
+  <h2 class="eyebrow">Reports</h2>
   <!-- Opened from the Budget button in the controls bar. Reads its own
        endpoint, which reads storage only — so it is allowed to fail on its own
        without taking the rest of the page with it. Reloaded on every open and
@@ -1186,8 +1362,10 @@
 
     <div class="strip" id="bg-totals"></div>
 
+    <details class="fold note">
+    <summary>How it is worked out</summary>
     <p class="bg-howto">
-      <b>How it is worked out.</b> Every order in the window is split across the touchpoints
+      Every order in the window is split across the touchpoints
       that brought it in — half to the first click and half to the last when they differ, all
       of it to the one visit when they do not. A touch counts as <b>paid</b> only on real
       evidence: a click id on the landing page, or a UTM that names a paid medium. A plain
@@ -1197,6 +1375,7 @@
       <span id="bg-cap">±30%</span> of what is being spent now so one good week cannot triple
       a budget. <b>Click a tile</b> for the campaigns behind it, and a campaign for the orders.
     </p>
+    </details>
 
     <div class="tbl-scroll">
       <table id="bg-table">
@@ -1241,6 +1420,8 @@
 
     <div class="strip st-strip" id="st-totals"></div>
 
+    <details class="fold note">
+    <summary>How to read these columns</summary>
     <p class="st-note">
       <b>Lifetime</b> is what the benchmark bands grade — it is the share of everything
       ever stocked that has sold. The <b>window</b> column is velocity over the days you
@@ -1250,6 +1431,7 @@
       <b>Click any brand</b> to open its last thirteen weeks — units sold against the
       stock still sitting behind them.
     </p>
+    </details>
 
     <div class="tbl-scroll">
       <table id="st-table">
@@ -1271,28 +1453,6 @@
     <p class="st-empty" id="st-empty" hidden></p>
   </div>
 
-  <!-- Opened from the Ecommerce legend entry above. One line per sales channel,
-       so you can see which channel the Ecommerce number is actually flowing
-       through, either as order count or as revenue. -->
-  <div class="card" id="ch-card" hidden>
-    <div class="card-head">
-      <div>
-        <div class="card-title">Ecommerce by channel</div>
-        <div class="card-sub" id="ch-sub"></div>
-      </div>
-      <div class="head-tools">
-        <div class="seg" id="ch-metric" role="group" aria-label="Measure">
-          <button type="button" data-metric="orders"  aria-pressed="true">Orders</button>
-          <button type="button" data-metric="revenue" aria-pressed="false">Revenue</button>
-        </div>
-        <button class="btn" id="ch-close" title="Hide this breakdown">Close</button>
-      </div>
-    </div>
-    <div class="legend legend-wrap" id="ch-legend"></div>
-    <svg id="ch-chart" role="img" aria-label="Ecommerce orders by sales channel over time"></svg>
-    <p class="ch-empty" id="ch-empty" hidden></p>
-  </div>
-
   <div class="card" id="camp-card" hidden>
     <div class="card-head">
       <div class="card-title">Campaigns — Shopify last click vs Meta</div>
@@ -1300,6 +1460,8 @@
         <span><i style="background:var(--meta)"></i>Meta Ads</span>
       </div>
     </div>
+    <details class="fold note">
+    <summary>Why the two sides disagree</summary>
     <p class="camp-note">
       Joined on campaign name. Meta reports per campaign per day, never per order,
       so there is no purchase timestamp to match against — the campaign is the join.
@@ -1307,6 +1469,7 @@
       cross-device purchases that reach the storefront with no campaign attached,
       which Shopify then credits to Direct. A positive gap is that shortfall.
     </p>
+    </details>
     <div class="ads-strip" id="ads-strip"></div>
     <div class="tbl-scroll">
       <table id="camp-tbl">
@@ -1333,6 +1496,10 @@
     </div>
   </div>
 
+  </section>
+
+  <section class="group">
+  <h2 class="eyebrow">Orders</h2>
   <!-- data-finding has no label of its own: the right-click menu reads the
        bucket name out of the table head, which is the one on screen. -->
   <div class="card" data-finding="" id="tbl-card">
@@ -1340,7 +1507,6 @@
       <div class="table-title"><i id="tt-swatch"></i><span id="tt-name">Ecommerce orders</span></div>
       <span class="count-pill" id="tt-count">—</span>
       <div class="spacer"></div>
-      <input type="search" id="search" placeholder="Filter order #, source, customer…" />
       <button class="btn" id="csv">Export CSV</button>
     </div>
     <div class="tbl-scroll">
@@ -1362,6 +1528,7 @@
       </table>
     </div>
   </div>
+  </section>
 </div>
 
 <!-- Customer journey. A right-hand drawer rather than a centre modal: it is read
@@ -3352,18 +3519,22 @@ function renderTable() {
   $('#tt-count').textContent = `${int(b.orderCount)} orders · ${money2(b.revenue)}`;
 
   const q = $('#search').value.trim().toLowerCase();
-  let rows = b.orders;
-  if (q) {
-    rows = rows.filter((o) =>
-      [o.orderNumber, o.customerName, o.trafficSource, o.channelName,
-       o.salesChannel, o.device, o.creditedTo, o.convertedVia,
-       o.campaign, o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage,
-       /* What someone wrote about the order counts as part of it. Only the
-        * preview is held in the browser, so this finds the opening words of
-        * the most recent note rather than every word ever written. */
-       noteState.index[o.id]?.preview]
-        .filter(Boolean).join(' ').toLowerCase().includes(q));
-  }
+  const hit = (o) =>
+    [o.orderNumber, o.customerName, o.trafficSource, o.channelName,
+     o.salesChannel, o.device, o.creditedTo, o.convertedVia,
+     o.campaign, o.firstClick?.source, o.lastClick?.source, o.firstClick?.landingPage, o.lastClick?.landingPage,
+     /* What someone wrote about the order counts as part of it. Only the
+      * preview is held in the browser, so this finds the opening words of
+      * the most recent note rather than every word ever written. */
+     noteState.index[o.id]?.preview]
+      .filter(Boolean).join(' ').toLowerCase().includes(q);
+  let rows = q ? b.orders.filter(hit) : b.orders;
+  // The table shows one bucket, so the search bar says what the other two hold:
+  // "0 here" with nothing beside it would read as "no such order anywhere".
+  $('#search-hint').textContent = !q ? '' : [`${rows.length} here`,
+    ...Object.keys(NAMES).filter((k) => k !== state.bucket)
+      .map((k) => [d.buckets[k].orders.filter(hit).length, NAMES[k].split(' ')[0]])
+      .filter(([n]) => n).map(([n, name]) => `${n} ${name}`)].join(' · ');
   rows = [...rows].sort((a, z) => {
     const av = sortVal(a, state.sortKey), zv = sortVal(z, state.sortKey);
     return (av < zv ? -1 : av > zv ? 1 : 0) * state.sortDir;
@@ -3733,6 +3904,20 @@ window.addEventListener('resize', () => {
 $('#refresh').addEventListener('click', syncNow);
 $('#csv').addEventListener('click', exportCSV);
 $('#search').addEventListener('input', renderTable);
+// While Sell-through is open the same box filters its brand list too.
+$('#search').addEventListener('input', () => {
+  if (!$('#st-card').hidden) { $('#st-search').value = $('#search').value; renderStRows(); }
+});
+$('#search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('#tbl-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && !e.target.closest('input, textarea, select')) { e.preventDefault(); $('#search').focus(); }
+});
+// The More menu is a <details>; these close it on a pick or a click elsewhere.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#more > summary')) $('#more').open = false;
+});
 
 $('#theme').addEventListener('click', () => {
   const light = document.documentElement.dataset.theme !== 'dark';
