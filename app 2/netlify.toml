@@ -67,6 +67,15 @@
 [functions."budget"]
   timeout = 15
 
+# The notes index walks every order that has one. A few hundred small reads.
+[functions."notes"]
+  timeout = 15
+
+# Carries a screenshot in its body, so it is slower than its size suggests on
+# a phone tethered in a stockroom.
+[functions."noteimage"]
+  timeout = 20
+
 [[headers]]
   for = "/*"
   [headers.values]

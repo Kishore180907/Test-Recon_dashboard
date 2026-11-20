@@ -23,6 +23,8 @@ Splits store revenue three ways and lets you click into the orders behind each n
 
 POS is excluded from all three and shown once as a reference figure. It is 90%+ of order volume and would drown everything else.
 
+Any order in the drill-down can carry **notes** — written remarks and pasted screenshots, folded under its own row and never shared outside the dashboard. Section 12.
+
 The **Budget** button works out what to spend next week on Meta and Google from the orders in the last seven complete days. Section 11.
 
 Any filtered view can be **sent as a report** — right-click a tile and a stakeholder gets those exact numbers behind a link that needs no password. Section 10.
@@ -313,6 +315,8 @@ public/favicon.svg
 netlify/edge-functions/gate.js             password gate, runs in front of everything
 netlify/functions/data.mjs                 GET  /api/data      read + classify + aggregate
 netlify/functions/budget.mjs               GET  /api/budget    next week's Meta and Google spend
+netlify/functions/notes.mjs                /api/notes          read, write and delete order notes
+netlify/functions/noteimage.mjs            /api/note-image     store and serve a note's screenshots
 netlify/functions/report.mjs               POST /api/report    freeze a view, list, revoke
 netlify/functions/reportview.mjs           GET  /r/<id>        the public report page
 netlify/functions/appconfig.mjs            GET  /api/config    rules and defaults for the UI
@@ -325,6 +329,7 @@ netlify/functions/login.mjs                POST /api/login
 lib/classify.js      ← THE ONLY FILE TO EDIT TO CHANGE BUCKETING
 lib/payload.js       stored orders → the JSON the dashboard renders; the Meta join
 lib/budget.js        touchpoint classification, attribution split, budget recommendation
+lib/notes.js         internal notes and screenshots, per order — NEVER imported by report.js
 lib/snapshot.js      reads one range out of storage and shapes it — used by BOTH
                      /api/data and a shared report, so they cannot drift
 lib/report.js        frozen findings: snapshot, 128-bit id, save, read, revoke
@@ -341,7 +346,7 @@ lib/timezone.js      store-local dates — every date in the app is New York, no
 fixtures/sample-orders.js   34 real non-POS orders + 6 POS, Aug 11–17
 fixtures/sample-meta.js     matching Meta campaign-days, in raw Graph API shape
 
-scripts/selftest.js         395 unit checks, no credentials needed
+scripts/selftest.js         424 unit checks, no credentials needed
 scripts/smoke.js            32 end-to-end checks against the real handlers
 scripts/dev-server.js       runs the real function handlers locally against ./.blobs
 scripts/capture-guide.mjs   regenerates the guide screenshots
@@ -361,6 +366,7 @@ netlify.toml         build, function timeouts, the cron, security headers
 | The in-page guide | the `<section>` blocks inside `#guide-body` in `public/index.html` |
 | What a shared report shows | `lib/reportpage.js` for the page, `lib/report.js` for what is frozen into it |
 | What counts as a paid click | `classifyTouch()` in `lib/budget.js` — nothing else decides it |
+| Note limits — size, count, image types | the exported constants at the top of `lib/notes.js` |
 | How a budget is recommended | `recommend()` in `lib/budget.js`, plus the `BUDGET_*` environment variables |
 | What a shared link carries | `public/viewstate.js` — both the dashboard and the report's live link use it |
 | Guide screenshots | `npm run guide:capture` against a local dev server |
@@ -476,6 +482,8 @@ To re-seed from scratch later: `POST /api/backfill?restart=1`.
 | `/api/sync-now` | POST | Refresh now. 26-second timeout. |
 | `/api/backfill?restart=1` | POST | Re-seed. Background function, needs `x-admin-key`. |
 | `/api/budget?end=` | GET | Next week's Meta and Google spend, from the last 7 complete days. Reads storage only. |
+| `/api/notes?order=` · `?index=1` | GET POST PATCH DELETE | Internal notes on an order. Never leaves the dashboard. |
+| `/api/note-image?id=` | GET POST | A note's screenshots. Gated like everything else. |
 | `/api/login` | POST | Issues the session cookie. |
 
 ### Access
@@ -727,7 +735,54 @@ The panel re-reads on every open, on **Recalculate**, and after **Refresh now**.
 
 ---
 
-## 12. Known limits
+## 12. Order notes
+
+What somebody knows about an order that Shopify does not — the customer rang about sizing, this one is a return waiting to happen, the attribution is wrong and here is the screenshot proving it. Click **note** in the Order column of the drill-down table and a panel folds open beneath that row.
+
+### Internal, and that is a promise
+
+The line printed above the box reads: *"Only people with the dashboard password see these. They are never included in a shared report."* Everything below exists to keep it true.
+
+- Notes are **not in `/api/data`**. They have their own endpoint and are fetched only when a fold is opened.
+- `lib/report.js` and `lib/reportpage.js` **do not import `lib/notes.js`**, and the selftest asserts that by reading their source. A leak would have to be written on purpose, and it would fail the suite before it shipped.
+- Screenshots are served by `/api/note-image`, which sits behind the same password gate as the rest. An image endpoint anyone could hit by id would quietly make every note public.
+- Three checks come at the same promise from different angles: a note's text must not appear in a snapshot, must not appear in a rendered report page, and the report code must not be able to reach a note at all.
+
+That strictness is the point. The store asked for somewhere to write plainly; plain writing only happens when nobody is weighing who might end up holding the link.
+
+### Keys, and the one place a string from outside reaches storage
+
+Notes are keyed by the Shopify **order id**, not the order number — numbers are display strings a store can reformat, the id is the thing Shopify promises is stable. `orderKey()` reduces `gid://shopify/Order/6227812352089` to its numeric tail and **refuses anything that is not 1–32 digits**, before a blob key exists. The id arrives on a query string, so that check is the boundary; `n/../meta/watermark` is refused rather than cleaned up. Image ids are v4 uuids, validated the same way.
+
+### Screenshots
+
+**They can be pasted.** That is the whole feature — a screenshot starts life on the clipboard, and anything that makes someone save it to disk first is a step at which they stop bothering. ⌘V / Ctrl-V into the text box attaches it; drag-and-drop and a file picker are there too.
+
+The browser **shrinks before it uploads**: longest edge to 1600px, quality 0.82. A phone screenshot is four megabytes of pixels nobody will look at closely, and 1600px reads perfectly in both the thumbnail and the lightbox over it. PNG and GIF are **kept as PNG** — re-encoding a screenshot of *text* as JPEG puts ringing around every letter, and text is exactly what these hold. Everything else goes to JPEG.
+
+Each image is posted **on its own**, not with the note. Six screenshots in one body would be ten megabytes of base64 against a function limit of six, and the failure would land only after the slowest upload had already finished. One at a time also lets the page show which one is still going.
+
+Images are stored as base64 inside an ordinary JSON record rather than as raw binary. That costs a third more space on an object of a few hundred kilobytes, and buys one storage path that behaves identically on Netlify and on the local filesystem the tests run against — worth considerably more than the bytes.
+
+**Deleting a note deletes its screenshots.** An image nobody can reach from anywhere is a thing that sits in storage for ever, because nobody will ever come back to clean it up.
+
+### The table
+
+Every row carries `data-oid`, **including rows with no journey data** — those are often the ones most worth a note, and journey data is what decides whether a row opens the *drawer*, not whether it can be written about.
+
+The pill shows a count once there is one (`2 notes · 1 📎`). Those counts come from `/api/notes?index=1`, one request for every order that has a note, loaded before the first render — one request per visible row would be a hundred requests to answer a question about a handful. The index holds a count and a 160-character preview, never the notes themselves, and the preview is what the search box matches so that **searching finds what people wrote**, not only what Shopify recorded.
+
+Saving patches the one badge that changed rather than calling `renderTable()`, which rebuilds every row and would tear out the fold the person is typing in.
+
+### Limits
+
+`MAX_NOTES_PER_ORDER` 40 · `MAX_TEXT` 4,000 (trimmed, not rejected) · `MAX_IMAGES_PER_NOTE` 6 · `MAX_IMAGE_BYTES` 2.5MB · types `png` `jpeg` `webp` `gif`. Each is a guess at "more than anyone sensibly needs", set so that a paste loop cannot quietly fill the store. A note with neither words nor a picture is refused — that is a mis-click, not a note.
+
+Authors are free text, remembered in `localStorage`, because the dashboard has one shared password and no idea who is typing. Wrapped in try/catch: a private window that refuses storage should cost you a remembered name, not the feature.
+
+---
+
+## 13. Known limits
 
 - Ranges older than `COVERAGE_DAYS` are refused — that data was never stored. Raise it and re-run the backfill.
 - Scheduled functions only run on published production deploys, not deploy previews.
@@ -737,10 +792,12 @@ The panel re-reads on every open, on **Recalculate**, and after **Refresh now**.
 - A report is frozen at creation. Re-sending a finding after the numbers move means creating a new link, not refreshing an old one.
 - The budget report sees only what Shopify recorded on the customer journey. A click that converted on another device, or was stripped of its tags by an app browser, lands in direct/other and quietly understates whichever platform bought it.
 - Google spend is whatever `GOOGLE_ADS_WEEKLY_SPEND` says. Nothing checks it against Google.
+- Notes have no edit history and no per-person identity — one shared password, and an author field anyone can type anything into. A deleted note is gone.
+- The notes index walks every order that has one. Fine at a few hundred; it would want paging at a few thousand.
 - The repo is public. Nothing secret is in it, but it should be private.
 - `clb23-dashboard-netlify_1.zip` is still committed at the repo root and should be deleted.
 
-## 13. Open items
+## 14. Open items
 
 | | |
 |---|---|
